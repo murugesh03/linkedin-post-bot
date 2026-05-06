@@ -66,7 +66,7 @@ Output ONLY the post text. No preamble, no quotes around the output.`;
   return data.choices[0].message.content.trim();
 }
 
-// ── Step 2: Publish to LinkedIn using REST Posts API ─────────────────────────
+// ── Step 2: Publish to LinkedIn REST Posts API ────────────────────────────────
 async function postToLinkedIn(text) {
   const res = await fetch('https://api.linkedin.com/rest/posts', {
     method: 'POST',
@@ -74,7 +74,7 @@ async function postToLinkedIn(text) {
       'Authorization': 'Bearer ' + process.env.LINKEDIN_ACCESS_TOKEN,
       'Content-Type': 'application/json',
       'X-Restli-Protocol-Version': '2.0.0',
-      'LinkedIn-Version': '202501',
+      'LinkedIn-Version': '202304',
     },
     body: JSON.stringify({
       author: `urn:li:person:${process.env.LINKEDIN_PERSON_URN}`,
