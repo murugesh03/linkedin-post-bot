@@ -2,8 +2,9 @@ name: Daily LinkedIn Post
 
 on:
   schedule:
-    - cron: '30 3 * * *'  # 9:00 AM IST daily
-  workflow_dispatch:        # Manual trigger
+    - cron: '30 3 * * *'   # 9:00 AM IST  (morning post)
+    - cron: '30 13 * * *'  # 7:00 PM IST  (evening post)
+  workflow_dispatch:         # Manual trigger
 
 jobs:
   post:
@@ -19,7 +20,7 @@ jobs:
       - name: Install dependencies
         run: npm install node-fetch
 
-      - name: Generate post with Groq and publish to LinkedIn
+      - name: Generate post and publish to LinkedIn
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           LINKEDIN_ACCESS_TOKEN: ${{ secrets.LINKEDIN_ACCESS_TOKEN }}
