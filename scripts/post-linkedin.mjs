@@ -14,34 +14,50 @@ const TOPICS = [
 ];
 
 const STYLES = [
-  'Educational — teach something valuable with clear structure',
-  'Personal story — first-person narrative with a lesson at the end',
-  'Numbered tips — exactly 5 actionable tips with a strong hook',
-  'Hot take — bold opinion that challenges conventional wisdom in tech',
+  'numbered tips list',   // Sun
+  'before vs after',      // Mon
+  'numbered tips list',   // Tue
+  'myth vs reality',      // Wed
+  'numbered tips list',   // Thu
+  'story with lesson',    // Fri
+  'numbered tips list',   // Sat
 ];
 
 const today = new Date().getDay();
 const topic = TOPICS[today];
-const style = STYLES[today % STYLES.length];
+const style = STYLES[today];
 
 // ── Step 1: Generate post with Groq ──────────────────────────────────────────
 async function generatePost() {
-  const prompt = `Write a LinkedIn post about ${topic} for Murugesh Padmanabhan, 
-a Technical Lead and Senior Frontend/MERN Stack Developer at HCL Tech, Chennai. 
-6+ years of experience in ReactJS, TypeScript, Node.js, MongoDB, Redux, React Native.
+  const prompt = `Write a LinkedIn post about ${topic} for Murugesh Padmanabhan, a Technical Lead and Senior Frontend/MERN Stack Developer at HCL Tech, Chennai. 6+ years in ReactJS, TypeScript, Node.js, MongoDB, Redux, React Native.
 
-Style: ${style}
+FORMAT RULES — follow these exactly:
+- Style: ${style}
+- Hook: 1 punchy line that stops the scroll (no "I" at the start, no generic openers)
+- Body: short, broken lines — NOT long paragraphs. Each line max 10 words.
+- Use line breaks generously to make it scannable
+- Each point must have ONE clear takeaway the reader can use TODAY
+- Use emojis as bullet markers (→, ✅, ⚡, 🔥, 💡) instead of plain dashes
+- End with 1 question to drive comments
+- 3-5 hashtags on the last line
 
-Requirements:
-- 150 to 250 words
-- Start with a strong hook — NOT starting with "I" or "Have you ever"
-- First person, authentic developer voice — not corporate
-- 2 to 4 emojis placed naturally
-- Specific enough to impress senior engineers, accessible to general tech audience
-- 3 to 5 relevant hashtags at the very end
-- End with a question or CTA to drive comments
+EXAMPLE FORMAT:
+Most developers write useEffect wrong. Here's why 👇
 
-Output ONLY the post text. No preamble, no quotes around the output.`;
+After 6 years of React, I see this mistake everywhere:
+
+⚡ Missing dependency arrays cause infinite loops
+💡 Cleanup functions prevent memory leaks
+🔥 Split effects by concern — don't bundle logic
+✅ Custom hooks make effects reusable
+
+The rule: one effect, one responsibility.
+
+Which of these have you run into? Drop it below 👇
+
+#ReactJS #Frontend #JavaScript #WebDev
+
+Output ONLY the post. No preamble, no explanation.`;
 
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
@@ -52,7 +68,7 @@ Output ONLY the post text. No preamble, no quotes around the output.`;
     body: JSON.stringify({
       model: 'llama-3.3-70b-versatile',
       messages: [{ role: 'user', content: prompt }],
-      temperature: 0.9,
+      temperature: 0.85,
       max_tokens: 1024,
     }),
   });
