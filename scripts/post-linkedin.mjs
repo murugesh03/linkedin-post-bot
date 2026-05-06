@@ -69,28 +69,27 @@ Output ONLY the post text. No preamble, no quotes around the output.`;
 
 // ── Step 2: Publish to LinkedIn ───────────────────────────────────────────────
 async function postToLinkedIn(text) {
-  // URN format: urn:li:person:SUB_VALUE (works for OpenID sub values)
   const authorUrn = `urn:li:person:${process.env.LINKEDIN_PERSON_URN}`;
 
-  const res = await fetch('https://api.linkedin.com/rest/posts', {
+  const res = await fetch('https://api.linkedin.com/v2/ugcPosts', {
     method: 'POST',
     headers: {
       'Authorization': 'Bearer ' + process.env.LINKEDIN_ACCESS_TOKEN,
       'Content-Type': 'application/json',
-      'LinkedIn-Version': '202401',
       'X-Restli-Protocol-Version': '2.0.0',
     },
     body: JSON.stringify({
       author: authorUrn,
-      commentary: text,
-      visibility: 'PUBLIC',
-      distribution: {
-        feedDistribution: 'MAIN_FEED',
-        targetEntities: [],
-        thirdPartyDistributionChannels: [],
-      },
       lifecycleState: 'PUBLISHED',
-      isReshareDisabledByAuthor: false,
+      specificContent: {
+        'com.linkedin.ugc.ShareContent': {
+          shareCommentary: { text },
+          shareMediaCategory: 'NONE',
+        },
+      },
+      visibility: {
+        'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC',
+      },
     }),
   });
 
@@ -99,7 +98,7 @@ async function postToLinkedIn(text) {
     throw new Error(`LinkedIn API error ${res.status}: ${err}`);
   }
 
-  const location = res.headers.get('location') || 'unknown';
+  const location = res.headers.get('location') || 'success';
   return location;
 }
 
