@@ -1,5 +1,5 @@
 // scripts/post-linkedin.mjs
-// Generates a daily tech LinkedIn post using Gemini API and publishes via LinkedIn API.
+// Generates a daily tech LinkedIn post using Groq API (free) and publishes via LinkedIn API.
 
 import fetch from 'node-fetch';
 
@@ -25,7 +25,7 @@ const today = new Date().getDay();
 const topic = TOPICS[today];
 const style = STYLES[today % STYLES.length];
 
-// ── Step 1: Generate post with Gemini ────────────────────────────────────────
+// ── Step 1: Generate post with Groq ──────────────────────────────────────────
 async function generatePost() {
   const prompt = `Write a LinkedIn post about ${topic} for Murugesh Padmanabhan, 
 a Technical Lead and Senior Frontend/MERN Stack Developer at HCL Tech, Chennai. 
@@ -38,34 +38,33 @@ Requirements:
 - Start with a strong hook — NOT starting with "I" or "Have you ever"
 - First person, authentic developer voice — not corporate
 - 2 to 4 emojis placed naturally
-- Specific enough to impress senior engineers, accessible to general tech audience  
+- Specific enough to impress senior engineers, accessible to general tech audience
 - 3 to 5 relevant hashtags at the very end
 - End with a question or CTA to drive comments
 
 Output ONLY the post text. No preamble, no quotes around the output.`;
 
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.9,
-          maxOutputTokens: 1024,
-        },
-      }),
-    }
-  );
+  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: 'llama-3.3-70b-versatile',
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.9,
+      max_tokens: 1024,
+    }),
+  });
 
   if (!res.ok) {
     const err = await res.text();
-    throw new Error(`Gemini API error ${res.status}: ${err}`);
+    throw new Error(`Groq API error ${res.status}: ${err}`);
   }
 
   const data = await res.json();
-  return data.candidates[0].content.parts[0].text.trim();
+  return data.choices[0].message.content.trim();
 }
 
 // ── Step 2: Publish to LinkedIn ───────────────────────────────────────────────
