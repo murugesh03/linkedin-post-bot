@@ -2,9 +2,10 @@ name: Daily LinkedIn Post
 
 on:
   schedule:
-    - cron: '30 3 * * *'   # 9:00 AM IST  (morning post)
-    - cron: '30 13 * * *'  # 7:00 PM IST  (evening post)
-  workflow_dispatch:         # Manual trigger
+    - cron: '30 3 * * *'   # 9:00 AM IST  — morning tech deep dive
+    - cron: '30 6 * * *'   # 12:00 PM IST — latest tech news
+    - cron: '30 13 * * *'  # 7:00 PM IST  — evening tech topic
+  workflow_dispatch:
 
 jobs:
   post:
