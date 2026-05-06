@@ -1,9 +1,8 @@
 // scripts/post-linkedin.mjs
-// Generates a daily tech LinkedIn post using Groq API (free) and publishes via LinkedIn API.
+// Generates a daily tech LinkedIn post using Groq API (free) and publishes via LinkedIn REST API.
 
 import fetch from 'node-fetch';
 
-// ── Topic rotation by day of week ─────────────────────────────────────────────
 const TOPICS = [
   'React hooks, performance optimization, and modern component patterns',  // Sun
   'React architecture, design patterns, and production best practices',    // Mon
@@ -67,29 +66,27 @@ Output ONLY the post text. No preamble, no quotes around the output.`;
   return data.choices[0].message.content.trim();
 }
 
-// ── Step 2: Publish to LinkedIn ───────────────────────────────────────────────
+// ── Step 2: Publish to LinkedIn using REST Posts API ─────────────────────────
 async function postToLinkedIn(text) {
-  const authorUrn = `urn:li:person:${process.env.LINKEDIN_PERSON_URN}`;
-
-  const res = await fetch('https://api.linkedin.com/v2/ugcPosts', {
+  const res = await fetch('https://api.linkedin.com/rest/posts', {
     method: 'POST',
     headers: {
       'Authorization': 'Bearer ' + process.env.LINKEDIN_ACCESS_TOKEN,
       'Content-Type': 'application/json',
       'X-Restli-Protocol-Version': '2.0.0',
+      'LinkedIn-Version': '202501',
     },
     body: JSON.stringify({
-      author: authorUrn,
+      author: `urn:li:person:${process.env.LINKEDIN_PERSON_URN}`,
+      commentary: text,
+      visibility: 'PUBLIC',
+      distribution: {
+        feedDistribution: 'MAIN_FEED',
+        targetEntities: [],
+        thirdPartyDistributionChannels: [],
+      },
       lifecycleState: 'PUBLISHED',
-      specificContent: {
-        'com.linkedin.ugc.ShareContent': {
-          shareCommentary: { text },
-          shareMediaCategory: 'NONE',
-        },
-      },
-      visibility: {
-        'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC',
-      },
+      isReshareDisabledByAuthor: false,
     }),
   });
 
@@ -98,7 +95,7 @@ async function postToLinkedIn(text) {
     throw new Error(`LinkedIn API error ${res.status}: ${err}`);
   }
 
-  const location = res.headers.get('location') || 'success';
+  const location = res.headers.get('location') || 'posted';
   return location;
 }
 
