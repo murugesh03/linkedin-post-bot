@@ -61,6 +61,7 @@ const session = isEvening ? 'Evening' : 'Morning';
 // ── Step 1: Generate post with Groq ──────────────────────────────────────────
 async function generatePost() {
   const prompt = `Write a LinkedIn post about ${topic} for Murugesh Padmanabhan, a Technical Lead and Senior Frontend/MERN Stack Developer at HCL Tech, Chennai. 6+ years in ReactJS, TypeScript, Node.js, MongoDB, Redux, React Native.
+  const prompt = `Write a LinkedIn post about ${topic} for Murugesh Padmanabhan, a Technical Lead and Senior Frontend/MERN Stack Developer at HCL Tech, Chennai. 6+ years in ReactJS, TypeScript, Node.js, MongoDB, Redux, React Native.
 
 FORMAT RULES — follow these exactly:
 - Style: ${style}
@@ -99,6 +100,7 @@ Output ONLY the post. No preamble, no explanation.`;
     body: JSON.stringify({
       model: 'llama-3.3-70b-versatile',
       messages: [{ role: 'user', content: prompt }],
+      temperature: 0.85,
       temperature: 0.85,
       max_tokens: 1024,
     }),
