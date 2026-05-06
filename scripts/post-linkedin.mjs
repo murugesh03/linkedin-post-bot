@@ -1,5 +1,5 @@
 // scripts/post-linkedin.mjs
-// Generates a daily tech LinkedIn post using Groq API (free) and publishes via LinkedIn REST API.
+// Generates a daily tech LinkedIn post using Groq API (free) and publishes via LinkedIn API.
 
 import fetch from 'node-fetch';
 
@@ -66,27 +66,27 @@ Output ONLY the post text. No preamble, no quotes around the output.`;
   return data.choices[0].message.content.trim();
 }
 
-// ── Step 2: Publish to LinkedIn REST Posts API ────────────────────────────────
+// ── Step 2: Publish to LinkedIn ───────────────────────────────────────────────
 async function postToLinkedIn(text) {
-  const res = await fetch('https://api.linkedin.com/rest/posts', {
+  const res = await fetch('https://api.linkedin.com/v2/ugcPosts', {
     method: 'POST',
     headers: {
       'Authorization': 'Bearer ' + process.env.LINKEDIN_ACCESS_TOKEN,
       'Content-Type': 'application/json',
       'X-Restli-Protocol-Version': '2.0.0',
-      'LinkedIn-Version': '202304',
     },
     body: JSON.stringify({
       author: `urn:li:person:${process.env.LINKEDIN_PERSON_URN}`,
-      commentary: text,
-      visibility: 'PUBLIC',
-      distribution: {
-        feedDistribution: 'MAIN_FEED',
-        targetEntities: [],
-        thirdPartyDistributionChannels: [],
-      },
       lifecycleState: 'PUBLISHED',
-      isReshareDisabledByAuthor: false,
+      specificContent: {
+        'com.linkedin.ugc.ShareContent': {
+          shareCommentary: { text },
+          shareMediaCategory: 'NONE',
+        },
+      },
+      visibility: {
+        'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC',
+      },
     }),
   });
 
@@ -95,8 +95,8 @@ async function postToLinkedIn(text) {
     throw new Error(`LinkedIn API error ${res.status}: ${err}`);
   }
 
-  const location = res.headers.get('location') || 'posted';
-  return location;
+  const data = await res.json();
+  return data.id;
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
