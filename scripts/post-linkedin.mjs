@@ -116,6 +116,20 @@ const NEWS_KEYWORDS = [
   'React Native mobile development update 2025',
 ];
 
+// ── Clean up AI formatting artifacts ─────────────────────────────────────────
+function cleanPost(text) {
+  return text
+    .replace(/\[blank line\]/gi, '')
+    .replace(/\[BLANK LINE\]/gi, '')
+    .replace(/\[empty line\]/gi, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/\*\*(.*?)\*\*/g, '$1')
+    .replace(/__(.*?)__/g, '$1')
+    .replace(/^\n+/, '')
+    .replace(/\n+$/, '')
+    .trim();
+}
+
 const now = new Date();
 const utcHour = now.getUTCHours();
 const day = now.getDay();
@@ -138,47 +152,27 @@ Write a detailed LinkedIn post about: "${t.topic}" — Skill: ${t.skill}
 
 TARGET: Make developers stop scrolling, read every word, learn something real, and feel compelled to comment or share.
 
-FOLLOW THIS EXACT FORMAT with blank lines exactly as shown:
+FOLLOW THIS EXACT FORMAT. Use a real empty line between every section — do NOT write the words "blank line":
 
 [HOOK — One bold, surprising line. A counterintuitive fact, a common mistake, or a bold claim. Do NOT start with "I". Max 15 words.]
 
-[blank line]
-
-[STORY — 2 to 3 short sentences describing a real situation from experience. Specific, relatable, human. Not generic. Reference a real project scenario, a bug you fixed, a pattern you discovered.]
-
-[blank line]
+[STORY — 2 to 3 short sentences describing a real situation from experience. Specific, relatable, human. Reference a real project scenario, a bug you fixed, or a pattern you discovered.]
 
 Here is what 6 years taught me 👇
 
-[blank line]
+⚡ [LABEL in 2-4 words] — [2-3 sentences. What it is, why it matters, how to use it. Include the actual method name, API, or pattern.]
 
-⚡ [LABEL in 2-4 words] — [Detailed explanation: what it is, why it matters, and how to use it correctly. Include the actual method name, API, or pattern. 2-3 sentences with real depth.]
+💡 [LABEL in 2-4 words] — [2-3 sentences with a concrete example or comparison. Explain the WHY not just the WHAT.]
 
-[blank line]
+🔥 [LABEL in 2-4 words] — [2-3 sentences. A deeper insight or common mistake. Reference a real gotcha or edge case from production.]
 
-💡 [LABEL in 2-4 words] — [Detailed explanation with a concrete example or comparison. Explain the WHY not just the WHAT. 2-3 sentences.]
+✅ [LABEL in 2-4 words] — [2-3 sentences. The correct pattern or best practice. Mention a specific tool, hook, config, or code pattern by name.]
 
-[blank line]
+🎯 [LABEL in 2-4 words] — [2-3 sentences. Advanced tip that separates junior from senior developers on this topic.]
 
-🔥 [LABEL in 2-4 words] — [A deeper insight or common mistake to avoid. Reference a real gotcha or edge case developers hit in production. 2-3 sentences.]
+The bottom line: [One crisp memorable sentence — the single most important takeaway.]
 
-[blank line]
-
-✅ [LABEL in 2-4 words] — [The correct pattern or best practice. Explain exactly how to implement it. Mention a specific tool, hook, config, or code pattern by name. 2-3 sentences.]
-
-[blank line]
-
-🎯 [LABEL in 2-4 words] — [Advanced tip or pro-level insight that most tutorials skip. Something that separates junior from senior developers on this topic. 2-3 sentences.]
-
-[blank line]
-
-The bottom line: [One crisp sentence that is the single most important takeaway. Make it memorable and quotable.]
-
-[blank line]
-
-[QUESTION — One genuine question that makes developers want to share their own experience or opinion. Something with no obvious right answer.]
-
-[blank line]
+[One genuine question that makes developers want to share their own experience.]
 
 #${t.skill.replace(/\s/g,'')} #WebDevelopment #Programming #SoftwareEngineering
 
@@ -208,7 +202,7 @@ STRICT RULES:
 
   if (!res.ok) throw new Error(`Groq error ${res.status}: ${await res.text()}`);
   const data = await res.json();
-  return data.choices[0].message.content.trim();
+  return cleanPost(data.choices[0].message.content.trim());
 }
 
 async function generateNewsPost() {
@@ -289,7 +283,7 @@ STRICT RULES:
 
   if (!res.ok) throw new Error(`Groq error ${res.status}: ${await res.text()}`);
   const data = await res.json();
-  return data.choices[0].message.content.trim();
+  return cleanPost(data.choices[0].message.content.trim());
 }
 
 async function postToLinkedIn(text) {
