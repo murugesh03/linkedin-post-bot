@@ -1,9 +1,8 @@
 // scripts/post-linkedin.mjs
-// Fully automatic forever — topics cycle endlessly, news fetched live daily
+// Deep, detailed, crisp LinkedIn posts — 3x daily covering all skills
 
 import fetch from 'node-fetch';
 
-// ── 90 micro-topics covering all skills ───────────────────────────────────────
 const ALL_TOPICS = [
   { skill: 'React', topic: 'useState vs useReducer — when to use which' },
   { skill: 'React', topic: 'useEffect cleanup — why most developers skip it' },
@@ -107,9 +106,8 @@ const ALL_TOPICS = [
   { skill: 'Redis', topic: 'Redis data structures — strings, hashes, lists, sets explained' },
 ];
 
-// ── News keywords (auto-fetched daily, rotates by day) ────────────────────────
 const NEWS_KEYWORDS = [
-  'React JavaScript frontend 2025 latest update release',
+  'React JavaScript frontend 2025 latest update',
   'TypeScript Node.js backend developer news 2025',
   'AI developer tools GitHub Copilot Cursor 2025',
   'web performance Chrome browser update 2025',
@@ -118,16 +116,11 @@ const NEWS_KEYWORDS = [
   'React Native mobile development update 2025',
 ];
 
-// ── Session detection ─────────────────────────────────────────────────────────
 const now = new Date();
 const utcHour = now.getUTCHours();
 const day = now.getDay();
-
-// Days since a fixed epoch — auto cycles topics forever
 const EPOCH = new Date('2025-01-01').getTime();
 const daysSinceEpoch = Math.floor((now.getTime() - EPOCH) / 86400000);
-
-// Morning gets even index, evening gets odd index — cycles endlessly
 const morningIndex = (daysSinceEpoch * 2) % ALL_TOPICS.length;
 const eveningIndex = (daysSinceEpoch * 2 + 1) % ALL_TOPICS.length;
 
@@ -137,102 +130,66 @@ else if (utcHour >= 6 && utcHour < 13) session = 'News';
 else session = 'Evening';
 
 const topicObj = session === 'Morning' ? ALL_TOPICS[morningIndex] : ALL_TOPICS[eveningIndex];
-const newsKeyword = NEWS_KEYWORDS[day];
 
-// ── Fetch trending tech news via Groq ─────────────────────────────────────────
-async function fetchLatestNews() {
-  const today = now.toISOString().split('T')[0];
-  const prompt = `Today is ${today}. You are an expert tech journalist writing for developers.
-
-Write a LinkedIn post about the LATEST and most talked about news or release in: ${newsKeyword}
-
-Think about what major frameworks, tools, or companies announced or released recently in 2025 that developers are actively discussing right now.
-
-Write in this EXACT structure with a blank line between every element:
-
-[Hook — 1 punchy breaking news style line. Do NOT start with "I".]
-
-[1 line — why every developer needs to know this right now]
-
-⚡ [News detail 1 — name actual tool, version, or announcement]
-
-💡 [News detail 2 — what specifically changed or improved]
-
-🔥 [News detail 3 — real impact on developer workflow]
-
-✅ [What you should do or try today because of this news]
-
-🎯 [What to watch or expect next]
-
-[1 line clear takeaway]
-
-[1 question to spark discussion in comments]
-
-#TechNews #WebDev #Developer #Programming
-
-RULES:
-- Name real tools, versions, companies — be specific
-- Simple language — any developer can understand
-- Each bullet max 10 words
-- Blank line between EVERY element
-- Output ONLY the post. Nothing else.`;
-
-  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: 'llama-3.3-70b-versatile',
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.8,
-      max_tokens: 1024,
-    }),
-  });
-
-  if (!res.ok) throw new Error(`Groq error ${res.status}: ${await res.text()}`);
-  const data = await res.json();
-  return data.choices[0].message.content.trim();
-}
-
-// ── Generate skill post ───────────────────────────────────────────────────────
 async function generateSkillPost(t) {
-  const prompt = `You are writing a LinkedIn post for Murugesh Padmanabhan — Technical Lead & Senior Frontend/MERN Stack Developer at HCL Tech, Chennai. 6+ years in ReactJS, TypeScript, JavaScript, Node.js, MongoDB, Redux, React Native, Next.js, Docker, Jest, Material UI, Formik, Zustand, AWS, Redis, PostgreSQL, MySQL, Webpack, Vite, GitHub Actions, Chart.js, System Design.
+  const prompt = `You are Murugesh Padmanabhan — Technical Lead and Senior Frontend/MERN Stack Developer at HCL Tech, Chennai. 6+ years of hands-on experience shipping production apps with ReactJS, TypeScript, Node.js, MongoDB, Redux, React Native, Next.js, Docker, AWS, Redis, PostgreSQL, Vite, Jest, Material UI, Zustand, GitHub Actions, System Design.
 
-Skill: ${t.skill}
-Topic: ${t.topic}
+Write a detailed LinkedIn post about: "${t.topic}" — Skill: ${t.skill}
 
-GOAL: Maximum reach and engagement. Simple enough for junior devs. Valuable enough for seniors.
+TARGET: Make developers stop scrolling, read every word, learn something real, and feel compelled to comment or share.
 
-Write in this EXACT structure with a blank line between every element:
+FOLLOW THIS EXACT FORMAT with blank lines exactly as shown:
 
-[Hook — 1 punchy line. Bold claim or surprising fact. Do NOT start with "I".]
+[HOOK — One bold, surprising line. A counterintuitive fact, a common mistake, or a bold claim. Do NOT start with "I". Max 15 words.]
 
-[1 line — simple relatable problem every developer faces]
+[blank line]
 
-⚡ [Tip 1 — name the exact API, method, hook, or command]
+[STORY — 2 to 3 short sentences describing a real situation from experience. Specific, relatable, human. Not generic. Reference a real project scenario, a bug you fixed, a pattern you discovered.]
 
-💡 [Tip 2 — name the exact API, method, hook, or command]
+[blank line]
 
-🔥 [Tip 3 — name the exact API, method, hook, or command]
+Here is what 6 years taught me 👇
 
-✅ [Tip 4 — name the exact API, method, hook, or command]
+[blank line]
 
-🎯 [Tip 5 — name the exact API, method, hook, or command]
+⚡ [LABEL in 2-4 words] — [Detailed explanation: what it is, why it matters, and how to use it correctly. Include the actual method name, API, or pattern. 2-3 sentences with real depth.]
 
-[1 line — simple memorable takeaway]
+[blank line]
 
-[1 question to drive comments from all levels of developers]
+💡 [LABEL in 2-4 words] — [Detailed explanation with a concrete example or comparison. Explain the WHY not just the WHAT. 2-3 sentences.]
 
-#${t.skill.replace(/\s/g, '')} #WebDev #Programming #100DaysOfCode
+[blank line]
 
-RULES:
-- Simple language — a junior dev must understand every word
-- Specific — name actual hooks, methods, commands, or tools
-- No buzzwords — no "leverage", "paradigm", "synergy"
-- Each bullet max 10 words
-- Blank line between EVERY element
+🔥 [LABEL in 2-4 words] — [A deeper insight or common mistake to avoid. Reference a real gotcha or edge case developers hit in production. 2-3 sentences.]
+
+[blank line]
+
+✅ [LABEL in 2-4 words] — [The correct pattern or best practice. Explain exactly how to implement it. Mention a specific tool, hook, config, or code pattern by name. 2-3 sentences.]
+
+[blank line]
+
+🎯 [LABEL in 2-4 words] — [Advanced tip or pro-level insight that most tutorials skip. Something that separates junior from senior developers on this topic. 2-3 sentences.]
+
+[blank line]
+
+The bottom line: [One crisp sentence that is the single most important takeaway. Make it memorable and quotable.]
+
+[blank line]
+
+[QUESTION — One genuine question that makes developers want to share their own experience or opinion. Something with no obvious right answer.]
+
+[blank line]
+
+#${t.skill.replace(/\s/g,'')} #WebDevelopment #Programming #SoftwareEngineering
+
+STRICT RULES:
+- Every point must have 2-3 sentences of real depth — not one-liners
+- Use real method names, API names, config keys, or tool names in every point
+- Write from personal experience — use "I", "we", "our team", "in production"
+- No buzzwords — no "leverage", "paradigm", "utilize", "synergy"
+- Each label is bold and short (2-4 words)
+- Blank line between EVERY section
+- Total length: 280-380 words
 - Output ONLY the post. Nothing else.`;
 
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -245,7 +202,7 @@ RULES:
       model: 'llama-3.3-70b-versatile',
       messages: [{ role: 'user', content: prompt }],
       temperature: 0.85,
-      max_tokens: 1024,
+      max_tokens: 1500,
     }),
   });
 
@@ -254,7 +211,87 @@ RULES:
   return data.choices[0].message.content.trim();
 }
 
-// ── Publish to LinkedIn ───────────────────────────────────────────────────────
+async function generateNewsPost() {
+  const keyword = NEWS_KEYWORDS[day];
+  const today = now.toISOString().split('T')[0];
+  const prompt = `You are Murugesh Padmanabhan — Technical Lead and Senior Frontend/MERN Stack Developer at HCL Tech, Chennai. Today is ${today}.
+
+Write a detailed, opinionated LinkedIn post reacting to the latest news or major update in: ${keyword}
+
+TARGET: Give developers a real expert perspective — not just a summary, but your actual take on what it means for day-to-day development.
+
+FOLLOW THIS EXACT FORMAT with blank lines exactly as shown:
+
+[HOOK — One bold breaking-news style line. Make it feel urgent and relevant. Do NOT start with "I". Max 15 words.]
+
+[blank line]
+
+[CONTEXT — 2 to 3 sentences explaining what happened, what was released, or what changed. Name the actual tool, version, or company. Be specific.]
+
+[blank line]
+
+My take as a senior developer 👇
+
+[blank line]
+
+⚡ [LABEL in 2-4 words] — [What specifically changed or was announced. Name the exact feature, version number, or company involved. Explain the technical detail in 2-3 sentences.]
+
+[blank line]
+
+💡 [LABEL in 2-4 words] — [Why this matters to working developers. What problem does it solve? How does it compare to what existed before? 2-3 sentences with real depth.]
+
+[blank line]
+
+🔥 [LABEL in 2-4 words] — [Real impact on your workflow or codebase. Describe a concrete scenario where this change makes a difference. 2-3 sentences.]
+
+[blank line]
+
+✅ [LABEL in 2-4 words] — [What developers should do right now because of this. Specific action — update a package, read a doc, try a feature. 2-3 sentences.]
+
+[blank line]
+
+🎯 [LABEL in 2-4 words] — [Your personal prediction or opinion. What does this mean for the future of this technology? Be opinionated. 2-3 sentences.]
+
+[blank line]
+
+The bottom line: [One sharp sentence capturing your overall take on this news.]
+
+[blank line]
+
+[QUESTION — One genuine debate-sparking question about the news or update.]
+
+[blank line]
+
+#TechNews #WebDevelopment #Programming #Developer
+
+STRICT RULES:
+- Every point must have 2-3 sentences with real depth
+- Name actual tools, versions, APIs, and companies throughout
+- Be opinionated — share a real developer perspective
+- No fluff — every sentence must add value
+- Blank line between EVERY section
+- Total length: 280-380 words
+- Output ONLY the post. Nothing else.`;
+
+  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: 'llama-3.3-70b-versatile',
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.85,
+      max_tokens: 1500,
+    }),
+  });
+
+  if (!res.ok) throw new Error(`Groq error ${res.status}: ${await res.text()}`);
+  const data = await res.json();
+  return data.choices[0].message.content.trim();
+}
+
 async function postToLinkedIn(text) {
   const res = await fetch('https://api.linkedin.com/v2/ugcPosts', {
     method: 'POST',
@@ -281,21 +318,18 @@ async function postToLinkedIn(text) {
   return data.id;
 }
 
-// ── Main ──────────────────────────────────────────────────────────────────────
 let postText, label;
 
 if (session === 'News') {
-  label = `Tech News — ${newsKeyword}`;
-  postText = await fetchLatestNews();
+  label = `Tech News — ${NEWS_KEYWORDS[day]}`;
+  postText = await generateNewsPost();
 } else {
   label = `[${topicObj.skill}] ${topicObj.topic}`;
   postText = await generateSkillPost(topicObj);
 }
 
 console.log(`\n${session} Post — ${label}`);
-console.log(`Topic index: ${session === 'Morning' ? morningIndex : eveningIndex} / ${ALL_TOPICS.length}`);
 console.log('\nGenerated post:\n' + postText);
-
 console.log('\nPublishing to LinkedIn...');
 const postId = await postToLinkedIn(postText);
 console.log(`\n✅ ${session} post published! ID: ${postId}`);
