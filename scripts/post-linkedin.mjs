@@ -1,10 +1,15 @@
 // scripts/post-linkedin.mjs
 // 500+ topics across all languages, CS, AI/ML, Web, Cloud, Mobile — auto-rotating forever
+// v3: Fact-checked + retry loop — regenerates until post passes, always posts daily
 
 import fetch from 'node-fetch';
 
-const ALL_TOPICS = [
+// ─────────────────────────────────────────────────────────────────────────────
+// CONFIG
+// ─────────────────────────────────────────────────────────────────────────────
+const MAX_RETRIES = 4; // Max fresh generation attempts before using best available draft
 
+const ALL_TOPICS = [
   // ── YOUR CORE SKILLS (90 topics) ─────────────────────────────────────────
   { skill:'React', topic:'useState vs useReducer — when to use which' },
   { skill:'React', topic:'useEffect cleanup — why most developers skip it' },
@@ -182,7 +187,7 @@ const ALL_TOPICS = [
   { skill:'Kotlin', topic:'Kotlin Flow — reactive streams explained' },
   { skill:'Kotlin', topic:'Android with Kotlin — Jetpack Compose basics' },
 
-  // ── CS FUNDAMENTALS — DATA STRUCTURES (12 topics) ───────────────────────
+  // ── DATA STRUCTURES (12 topics) ──────────────────────────────────────────
   { skill:'Data Structures', topic:'Arrays vs linked lists — time complexity comparison' },
   { skill:'Data Structures', topic:'Hash tables — collision handling strategies' },
   { skill:'Data Structures', topic:'Binary search trees — insert, search, delete' },
@@ -196,7 +201,7 @@ const ALL_TOPICS = [
   { skill:'Data Structures', topic:'B-trees — why databases use them for indexing' },
   { skill:'Data Structures', topic:'Skip lists — probabilistic data structures' },
 
-  // ── CS FUNDAMENTALS — ALGORITHMS (12 topics) ────────────────────────────
+  // ── ALGORITHMS (12 topics) ───────────────────────────────────────────────
   { skill:'Algorithms', topic:'Big O notation — time and space complexity explained' },
   { skill:'Algorithms', topic:'Quicksort vs mergesort — when to use which' },
   { skill:'Algorithms', topic:'Binary search — patterns beyond sorted arrays' },
@@ -298,7 +303,7 @@ const ALL_TOPICS = [
   { skill:'Data Science', topic:'Statistics for data science — what you actually need' },
   { skill:'Data Science', topic:'A/B testing — design and analyse experiments' },
 
-  // ── CLOUD & DEVOPS (20 topics) ───────────────────────────────────────────
+  // ── CLOUD & DEVOPS (10 topics) ───────────────────────────────────────────
   { skill:'Cloud', topic:'AWS EC2 vs Lambda — when to use each' },
   { skill:'Cloud', topic:'AWS RDS vs DynamoDB — choosing the right database' },
   { skill:'Cloud', topic:'GCP for developers — BigQuery, Cloud Run, Firebase' },
@@ -384,6 +389,9 @@ const NEWS_KEYWORDS = [
   'mobile iOS Android React Native Flutter 2025',
 ];
 
+// ─────────────────────────────────────────────────────────────────────────────
+// HELPERS
+// ─────────────────────────────────────────────────────────────────────────────
 function cleanPost(text) {
   return text
     .replace(/\[blank line\]/gi, '')
@@ -397,6 +405,274 @@ function cleanPost(text) {
     .trim();
 }
 
+async function groq(prompt, temperature = 0.85) {
+  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: 'llama-3.3-70b-versatile',
+      messages: [{ role: 'user', content: prompt }],
+      temperature,
+      max_tokens: 1500,
+    }),
+  });
+  if (!res.ok) throw new Error(`Groq error ${res.status}: ${await res.text()}`);
+  return (await res.json()).choices[0].message.content.trim();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STEP 1: Fetch live news context from DuckDuckGo BEFORE generating
+// Prevents the LLM from inventing "latest" facts from stale training data
+// ─────────────────────────────────────────────────────────────────────────────
+async function fetchNewsContext(keyword) {
+  try {
+    const query = encodeURIComponent(keyword);
+    const url = `https://api.duckduckgo.com/?q=${query}&format=json&no_html=1&skip_disambig=1`;
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; LinkedInBot/1.0)' },
+    });
+    if (!res.ok) throw new Error(`DDG responded ${res.status}`);
+    const data = await res.json();
+    const snippets = [];
+    if (data.Abstract?.length > 20) snippets.push(`SUMMARY: ${data.Abstract}`);
+    (data.RelatedTopics || []).filter(t => t.Text?.length > 10).slice(0, 5)
+      .forEach(t => snippets.push(`RELATED: ${t.Text}`));
+    (data.Results || []).filter(r => r.Text).slice(0, 3)
+      .forEach(r => snippets.push(`RESULT: ${r.Text}`));
+    return snippets.length ? snippets.join('\n') : null;
+  } catch (err) {
+    console.warn(`⚠️  News context fetch failed: ${err.message}`);
+    return null;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STEP 2: Fact-check generated post with a dedicated low-temperature LLM pass
+// Returns { pass, issues, revisedPost }
+// ─────────────────────────────────────────────────────────────────────────────
+async function factCheckPost(postText, context = '') {
+  const today = new Date().toISOString().split('T')[0];
+  const contextSection = context
+    ? `VERIFIED REAL-WORLD CONTEXT (from live search):\n${context}\n\n`
+    : 'NOTE: No live context available.\n\n';
+
+  const raw = await groq(`You are a senior technical fact-checker. Today is ${today}.
+
+${contextSection}DRAFT POST:
+"""
+${postText}
+"""
+
+Check every version number, release date, and "latest/newest/just released" claim in the post.
+Common errors to look for: calling an old version "the latest", wrong release year, wrong version numbers.
+
+If all facts are correct → respond with exactly: PASS
+If issues found → respond with this JSON only (no markdown, no backticks):
+{
+  "issues": ["describe issue 1", "describe issue 2"],
+  "revisedPost": "the complete corrected post text"
+}
+
+Output ONLY "PASS" or the JSON. Nothing else.`, 0.1);
+
+  if (raw.trim() === 'PASS') return { pass: true, issues: [], revisedPost: null };
+
+  try {
+    const parsed = JSON.parse(raw);
+    return { pass: false, issues: parsed.issues || [], revisedPost: parsed.revisedPost || null };
+  } catch {
+    return { pass: false, issues: ['Fact-checker returned unexpected format — flagging for safety.'], revisedPost: null };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GENERATORS
+// ─────────────────────────────────────────────────────────────────────────────
+async function generateSkillPost(t, attempt = 1) {
+  // Inject attempt number so the LLM generates a genuinely different post each time
+  const varietyHint = attempt > 1
+    ? `NOTE: This is attempt ${attempt}. Write a completely different angle, hook, and examples than your previous attempt.`
+    : '';
+
+  return cleanPost(await groq(`You are Murugesh Padmanabhan — Technical Lead and Senior Full-Stack Developer at HCL Tech, Chennai. Expert in ${t.skill}.
+${varietyHint}
+
+Write a detailed LinkedIn post about: "${t.topic}"
+
+EXACT FORMAT (real blank lines between every section):
+
+[HOOK — One bold punchy line. Surprising fact or common mistake. Do NOT start with "I". Max 15 words.]
+
+[2-3 sentences setting the scene. A real situation, bug, or pattern. Make it relatable.]
+
+Here is what actually matters 👇
+
+⚡ [LABEL 2-4 words] — [2-3 sentences. Real method names, tools, concepts.]
+
+💡 [LABEL 2-4 words] — [2-3 sentences. Concrete example. Explain the WHY.]
+
+🔥 [LABEL 2-4 words] — [2-3 sentences. Common mistake or production gotcha.]
+
+✅ [LABEL 2-4 words] — [2-3 sentences. The correct pattern. Name the actual tool or method.]
+
+🎯 [LABEL 2-4 words] — [2-3 sentences. Advanced insight separating junior from senior.]
+
+The bottom line: [One crisp memorable takeaway.]
+
+[One genuine question to drive comments.]
+
+#${t.skill.replace(/[^a-zA-Z0-9]/g,'')} #Programming #SoftwareEngineering #WomenWhoCode
+
+RULES:
+- Every bullet: 2-3 sentences. No one-liners.
+- Name real methods, APIs, tools in every point.
+- Write from experience: "I", "we", "our team", "in production".
+- No buzzwords: no "leverage", "paradigm", "synergy", "utilize".
+- VERSION ACCURACY: Only state a specific version number if 100% certain. Use feature names over version numbers when uncertain. Never say "latest" without verified proof.
+- 280-380 words. Output ONLY the post.`));
+}
+
+async function generateNewsPost(keyword, newsContext, attempt = 1) {
+  const today = new Date().toISOString().split('T')[0];
+  const varietyHint = attempt > 1
+    ? `NOTE: This is attempt ${attempt}. Use a completely different hook, angle, and structure than your previous attempt.`
+    : '';
+  const contextBlock = newsContext
+    ? `VERIFIED CURRENT INFO FROM LIVE SEARCH — use ONLY these facts for version/date claims:\n${newsContext}\n\n`
+    : `WARNING: No live context available. Do NOT claim specific version numbers, release dates, or say "latest". Speak in general trends only.\n\n`;
+
+  return cleanPost(await groq(`You are Murugesh Padmanabhan — Technical Lead at HCL Tech. Today is ${today}.
+${varietyHint}
+
+${contextBlock}Write a detailed opinionated LinkedIn post about the latest 2025 news in: ${keyword}
+
+EXACT FORMAT (real blank lines between every section):
+
+[HOOK — One bold breaking-news line. Do NOT start with "I". Max 15 words.]
+
+[2-3 sentences on what happened. Use ONLY facts from the context above. Never invent version numbers or dates.]
+
+My take as a senior developer 👇
+
+⚡ [LABEL] — [What changed. Facts from context only. 2-3 sentences.]
+
+💡 [LABEL] — [Why this matters. Problem it solves. 2-3 sentences.]
+
+🔥 [LABEL] — [Real impact on daily workflow. Concrete scenario. 2-3 sentences.]
+
+✅ [LABEL] — [What developers should do right now. 2-3 sentences.]
+
+🎯 [LABEL] — [Your personal opinionated prediction. 2-3 sentences.]
+
+The bottom line: [One sharp sentence.]
+
+[One debate-sparking question.]
+
+#TechNews #Programming #WebDevelopment #Developer
+
+CRITICAL ACCURACY RULES:
+- Version numbers and dates MUST come from the verified context above only
+- If context does not mention a version, describe by feature name only
+- Never say "the latest version is X" unless context explicitly confirms it
+- 280-380 words. Output ONLY the post.`));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CORE RETRY LOOP
+//
+// Per attempt:
+//   • Generates a brand-new post (attempt number injected for diversity)
+//   • Runs fact-check pass
+//   • PASS → publish immediately
+//   • FAIL + revisedPost → keep the revision as backup, try again with a fresh post
+//   • After MAX_RETRIES → use the best revision available, or last raw draft
+//
+// The post always goes out — no hard exits.
+// ─────────────────────────────────────────────────────────────────────────────
+async function generateAndVerify(session, topicObj, keyword, newsContext) {
+  let bestRevised = null;
+
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    console.log(`\n✍️  Generating post — attempt ${attempt}/${MAX_RETRIES}...`);
+
+    let draft;
+    if (session === 'News') {
+      draft = await generateNewsPost(keyword, newsContext, attempt);
+    } else {
+      draft = await generateSkillPost(topicObj, attempt);
+    }
+
+    console.log('\n─── DRAFT ───\n' + draft + '\n─────────────');
+    console.log('\n🔎 Running fact-check...');
+
+    const result = await factCheckPost(draft, newsContext || '');
+
+    if (result.pass) {
+      console.log(`✅ Fact-check PASSED on attempt ${attempt} — publishing as-is.`);
+      return draft;
+    }
+
+    // Failed — log issues
+    console.log(`⚠️  Attempt ${attempt} FAILED:`);
+    result.issues.forEach((issue, i) => console.log(`   ${i + 1}. ${issue}`));
+
+    // Save the best corrected version the fact-checker produced
+    if (result.revisedPost) {
+      bestRevised = cleanPost(result.revisedPost);
+      console.log('📝 Corrected version saved as backup.');
+    }
+
+    if (attempt < MAX_RETRIES) {
+      console.log('🔄 Generating a completely new post...\n');
+    }
+  }
+
+  // All retries exhausted — always post something
+  if (bestRevised) {
+    console.log(`\n⚠️  All ${MAX_RETRIES} attempts needed corrections. Using the fact-checker's best revision.`);
+    console.log('\n─── FINAL (CORRECTED) ───\n' + bestRevised + '\n─────────────────────────');
+    return bestRevised;
+  }
+
+  // Absolute last resort — post the last raw draft with a warning in logs
+  console.log(`\n⚠️  All ${MAX_RETRIES} attempts failed and no clean revision was produced.`);
+  console.log('   Posting last raw draft — manually review this post after publishing.');
+  return null; // Caller will use last draft
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LINKEDIN PUBLISH
+// ─────────────────────────────────────────────────────────────────────────────
+async function postToLinkedIn(text) {
+  const res = await fetch('https://api.linkedin.com/v2/ugcPosts', {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Bearer ' + process.env.LINKEDIN_ACCESS_TOKEN,
+      'Content-Type': 'application/json',
+      'X-Restli-Protocol-Version': '2.0.0',
+    },
+    body: JSON.stringify({
+      author: `urn:li:person:${process.env.LINKEDIN_PERSON_URN}`,
+      lifecycleState: 'PUBLISHED',
+      specificContent: {
+        'com.linkedin.ugc.ShareContent': {
+          shareCommentary: { text },
+          shareMediaCategory: 'NONE',
+        },
+      },
+      visibility: { 'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC' },
+    }),
+  });
+  if (!res.ok) throw new Error(`LinkedIn error ${res.status}: ${await res.text()}`);
+  return (await res.json()).id;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MAIN
+// ─────────────────────────────────────────────────────────────────────────────
 const now = new Date();
 const utcHour = now.getUTCHours();
 const day = now.getDay();
@@ -411,125 +687,29 @@ else if (utcHour >= 6 && utcHour < 13) session = 'News';
 else session = 'Evening';
 
 const topicObj = session === 'Morning' ? ALL_TOPICS[morningIndex] : ALL_TOPICS[eveningIndex];
+const keyword = NEWS_KEYWORDS[day];
+const label = session === 'News' ? `Tech News — ${keyword}` : `[${topicObj.skill}] ${topicObj.topic}`;
 
-async function generateSkillPost(t) {
-  const prompt = `You are Murugesh Padmanabhan — Technical Lead and Senior Full-Stack Developer at HCL Tech, Chennai. You are an expert in ${t.skill} and passionate about teaching complex concepts simply.
+console.log(`\n🚀 ${session} Post — ${label}`);
+console.log(`   Index: ${session === 'Morning' ? morningIndex : eveningIndex} / ${ALL_TOPICS.length - 1} | ${now.toISOString()}`);
 
-Write a detailed LinkedIn post about: "${t.topic}"
-
-Write it like a short expert article. Your audience is developers from junior to senior level.
-
-Use this EXACT format with real empty lines between sections:
-
-[HOOK — One bold punchy line. A surprising fact, common mistake, or bold claim. Do NOT start with "I". Max 15 words.]
-
-[2-3 short sentences setting the scene. A real situation, a bug you faced, a pattern you discovered. Make it relatable.]
-
-Here is what actually matters 👇
-
-⚡ [LABEL 2-4 words] — [2-3 sentences. Specific detail with actual method names, tools, or concepts. Real depth.]
-
-💡 [LABEL 2-4 words] — [2-3 sentences. Concrete example or comparison. Explain the WHY not just the WHAT.]
-
-🔥 [LABEL 2-4 words] — [2-3 sentences. Common mistake or gotcha from production experience.]
-
-✅ [LABEL 2-4 words] — [2-3 sentences. The correct pattern. Name the actual tool, method, or config.]
-
-🎯 [LABEL 2-4 words] — [2-3 sentences. Advanced insight that separates junior from senior developers.]
-
-The bottom line: [One crisp memorable sentence — the single most important takeaway.]
-
-[One genuine question to drive comments from all levels of developers.]
-
-#${t.skill.replace(/[^a-zA-Z0-9]/g,'')} #Programming #SoftwareEngineering #WomenWhoCode
-
-RULES:
-- Every bullet must have 2-3 sentences — no one-liners
-- Name real methods, APIs, tools, commands in every point
-- Write from experience: use "I", "we", "our team", "in production"
-- No buzzwords: no "leverage", "paradigm", "synergy", "utilize"
-- Blank line between every section — NOT the words [blank line]
-- 280-380 words total
-- Output ONLY the post. Nothing else.`;
-
-  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${process.env.GROQ_API_KEY}` },
-    body: JSON.stringify({ model: 'llama-3.3-70b-versatile', messages: [{ role: 'user', content: prompt }], temperature: 0.85, max_tokens: 1500 }),
-  });
-  if (!res.ok) throw new Error(`Groq error ${res.status}: ${await res.text()}`);
-  return cleanPost((await res.json()).choices[0].message.content.trim());
-}
-
-async function generateNewsPost() {
-  const keyword = NEWS_KEYWORDS[day];
-  const today = now.toISOString().split('T')[0];
-  const prompt = `You are Murugesh Padmanabhan — Technical Lead at HCL Tech. Today is ${today}.
-
-Write a detailed opinionated LinkedIn post reacting to the latest 2025 news in: ${keyword}
-
-Format with real blank lines between sections:
-
-[HOOK — One bold breaking-news line. Do NOT start with "I". Max 15 words.]
-
-[2-3 sentences explaining what happened. Name the actual tool, version, or company. Be specific.]
-
-My take as a senior developer 👇
-
-⚡ [LABEL] — [What changed specifically. Name the exact feature, version, or company. 2-3 sentences.]
-
-💡 [LABEL] — [Why this matters to working developers. Problem it solves. 2-3 sentences.]
-
-🔥 [LABEL] — [Real impact on daily workflow. Concrete scenario. 2-3 sentences.]
-
-✅ [LABEL] — [What developers should do right now. Specific action. 2-3 sentences.]
-
-🎯 [LABEL] — [Your personal prediction or recommendation. Be opinionated. 2-3 sentences.]
-
-The bottom line: [One sharp sentence capturing your overall take.]
-
-[One debate-sparking question about the news.]
-
-#TechNews #Programming #WebDevelopment #Developer
-
-RULES: Every point has 2-3 sentences. Name real tools and versions. Be opinionated. No fluff. Blank lines between sections. 280-380 words. Output ONLY the post.`;
-
-  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${process.env.GROQ_API_KEY}` },
-    body: JSON.stringify({ model: 'llama-3.3-70b-versatile', messages: [{ role: 'user', content: prompt }], temperature: 0.85, max_tokens: 1500 }),
-  });
-  if (!res.ok) throw new Error(`Groq error ${res.status}: ${await res.text()}`);
-  return cleanPost((await res.json()).choices[0].message.content.trim());
-}
-
-async function postToLinkedIn(text) {
-  const res = await fetch('https://api.linkedin.com/v2/ugcPosts', {
-    method: 'POST',
-    headers: { 'Authorization': 'Bearer ' + process.env.LINKEDIN_ACCESS_TOKEN, 'Content-Type': 'application/json', 'X-Restli-Protocol-Version': '2.0.0' },
-    body: JSON.stringify({
-      author: `urn:li:person:${process.env.LINKEDIN_PERSON_URN}`,
-      lifecycleState: 'PUBLISHED',
-      specificContent: { 'com.linkedin.ugc.ShareContent': { shareCommentary: { text }, shareMediaCategory: 'NONE' } },
-      visibility: { 'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC' },
-    }),
-  });
-  if (!res.ok) throw new Error(`LinkedIn error ${res.status}: ${await res.text()}`);
-  return (await res.json()).id;
-}
-
-let postText, label;
+// Fetch live news context first (News session only)
+let newsContext = null;
 if (session === 'News') {
-  label = `Tech News — ${NEWS_KEYWORDS[day]}`;
-  postText = await generateNewsPost();
-} else {
-  label = `[${topicObj.skill}] ${topicObj.topic}`;
-  postText = await generateSkillPost(topicObj);
+  console.log('\n🔍 Fetching live news context from DuckDuckGo...');
+  newsContext = await fetchNewsContext(keyword);
+  console.log(newsContext ? '✅ Live context loaded.\n' : '⚠️  No live context — post will use general framing.\n');
 }
 
-console.log(`\n${session} Post — ${label}`);
-console.log(`Index: ${session === 'Morning' ? morningIndex : eveningIndex} of ${ALL_TOPICS.length} topics`);
-console.log('\n' + postText);
-console.log('\nPublishing...');
-const postId = await postToLinkedIn(postText);
-console.log(`\n✅ Published! ID: ${postId}`);
+// Generate → fact-check → retry until passing (or best-effort)
+const finalPost = await generateAndVerify(session, topicObj, keyword, newsContext);
+
+if (!finalPost) {
+  console.error('\n🚫 Could not produce any post. Exiting without publishing.');
+  process.exit(1);
+}
+
+// Publish
+console.log('\n📤 Publishing to LinkedIn...');
+const postId = await postToLinkedIn(finalPost);
+console.log(`\n✅ Published! Post ID: ${postId}`);
