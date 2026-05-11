@@ -2,26 +2,32 @@ name: Daily LinkedIn Post
 
 on:
   schedule:
-    - cron: '30 3 * * *'   # 9:00 AM IST  — morning tech deep dive
-    - cron: '30 6 * * *'   # 12:00 PM IST — latest tech news
-    - cron: '30 13 * * *'  # 7:00 PM IST  — evening tech topic
+    - cron: '30 1 * * *'   # 7:00 AM IST  — GitHub resources & interview prep
+    - cron: '30 3 * * *'   # 9:00 AM IST  — Tech skill deep dive
+    - cron: '30 6 * * *'   # 12:00 PM IST — Latest tech news
+    - cron: '30 13 * * *'  # 7:00 PM IST  — Evening skill topic
   workflow_dispatch:
 
 jobs:
   post:
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
+      - run: npm install node-fetch
 
-      - name: Install dependencies
-        run: npm install node-fetch
+      - name: 7AM — GitHub Resources Post
+        if: github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && contains(github.event.schedule, '30 1'))
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          LINKEDIN_ACCESS_TOKEN: ${{ secrets.LINKEDIN_ACCESS_TOKEN }}
+          LINKEDIN_PERSON_URN: ${{ secrets.LINKEDIN_PERSON_URN }}
+        run: node scripts/post-resources.mjs
 
-      - name: Generate post and publish to LinkedIn
+      - name: 9AM / 12PM / 7PM — Skill & News Posts
+        if: github.event_name == 'workflow_dispatch' || !contains(github.event.schedule, '30 1')
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           LINKEDIN_ACCESS_TOKEN: ${{ secrets.LINKEDIN_ACCESS_TOKEN }}
