@@ -80,6 +80,7 @@ const CATEGORIES = [
   {
     label: 'CSS & Design Systems',
     query: 'topic:css+topic:design+stars:>5000',
+    fallbackQuery: 'topic:css+stars:>5000',
     hook: 'CSS is not just styling. It is a complete layout, animation, and design system. 🎨',
     angle: 'CSS mastery, design tokens, animation, and building scalable design systems',
   },
@@ -98,18 +99,21 @@ const CATEGORIES = [
   {
     label: 'Deep Learning & LLMs',
     query: 'topic:deep-learning+topic:llm+stars:>1000',
+    fallbackQuery: 'topic:deep-learning+stars:>1000',
     hook: 'LLMs and deep learning are not just for researchers anymore. These repos make them accessible. 🧠',
     angle: 'deep learning, large language models, transformers, and AI application development',
   },
   {
     label: 'Mobile Development',
     query: 'topic:react-native+topic:flutter+stars:>1000',
+    fallbackQuery: 'topic:react-native+stars:>1000',
     hook: 'Mobile in 2025 means one codebase, all platforms. These repos show exactly how. 📱',
     angle: 'cross-platform mobile development with React Native, Flutter, and native patterns',
   },
   {
     label: 'CS Fundamentals',
     query: 'topic:computer-science+topic:education+stars:>5000',
+    fallbackQuery: 'topic:computer-science+stars:>5000',
     hook: 'You do not need a CS degree. You need what a CS degree teaches. These repos give you both. 🎓',
     angle: 'computer science fundamentals, self-study curriculum, and foundational concepts',
   },
@@ -155,10 +159,14 @@ function cleanPost(text) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// FETCH live repos from GitHub Search API (unchanged)
+// FETCH live repos from GitHub Search API
+// Tries category.query first — falls back to category.fallbackQuery if defined
+// and the primary query returns fewer than 3 quality repos.
 // ─────────────────────────────────────────────────────────────────────────────
 async function fetchGitHubRepos(category) {
-  const url = `https://api.github.com/search/repositories?q=${category.query}+pushed:>2024-01-01&sort=stars&order=desc&per_page=10`;
+  const queries = [category.query];
+  if (category.fallbackQuery) queries.push(category.fallbackQuery);
+
   const headers = {
     'Accept': 'application/vnd.github.v3+json',
     'User-Agent': 'linkedin-post-bot',
@@ -166,22 +174,43 @@ async function fetchGitHubRepos(category) {
   if (process.env.GITHUB_TOKEN) {
     headers['Authorization'] = `Bearer ${process.env.GITHUB_TOKEN}`;
   }
-  const res = await fetch(url, { headers });
-  if (!res.ok) throw new Error(`GitHub API error ${res.status}: ${await res.text()}`);
-  const data = await res.json();
-  const repos = data.items
-    .filter(r => r.description && r.description.length > 20 && !r.fork)
-    .slice(0, 5)
-    .map(r => ({
-      name: r.name,
-      fullName: r.full_name,
-      url: `https://github.com/${r.full_name}`,
-      stars: formatStars(r.stargazers_count),
-      desc: r.description.replace(/[^\x20-\x7E]/g, '').trim(),
-      language: r.language || 'Multiple',
-    }));
-  if (repos.length < 3) throw new Error('Not enough quality repos found for this topic');
-  return repos;
+
+  for (let i = 0; i < queries.length; i++) {
+    const query = queries[i];
+    const isFallback = i > 0;
+
+    const url = `https://api.github.com/search/repositories?q=${query}+pushed:>2024-01-01&sort=stars&order=desc&per_page=10`;
+    const res = await fetch(url, { headers });
+    if (!res.ok) throw new Error(`GitHub API error ${res.status}: ${await res.text()}`);
+
+    const data = await res.json();
+    const repos = data.items
+      .filter(r => r.description && r.description.length > 20 && !r.fork)
+      .slice(0, 5)
+      .map(r => ({
+        name: r.name,
+        fullName: r.full_name,
+        url: `https://github.com/${r.full_name}`,
+        stars: formatStars(r.stargazers_count),
+        desc: r.description.replace(/[^\x20-\x7E]/g, '').trim(),
+        language: r.language || 'Multiple',
+      }));
+
+    if (repos.length >= 3) {
+      if (isFallback) {
+        console.log(`⚠️  Primary query returned too few results — used fallback query for "${category.label}".`);
+      }
+      return repos;
+    }
+
+    if (i < queries.length - 1) {
+      console.log(`⚠️  Query returned only ${repos.length} repos for "${category.label}" — trying fallback query...`);
+    } else {
+      console.log(`⚠️  Fallback query also returned only ${repos.length} repos for "${category.label}".`);
+    }
+  }
+
+  throw new Error(`Not enough quality repos found for "${category.label}" — primary and fallback queries both returned fewer than 3 results.`);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
