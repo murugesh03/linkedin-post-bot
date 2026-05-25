@@ -1,15 +1,14 @@
 // scripts/post-resources.mjs
 // Fully automated — fetches LIVE GitHub repos daily via GitHub Search API
-// v2: Integrity check + retry loop — verifies repo data wasn't hallucinated before posting
+// v4: LLM invents a unique post format each day — no fixed templates, always fresh
 
 import fetch from 'node-fetch';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CONFIG
 // ─────────────────────────────────────────────────────────────────────────────
-const MAX_RETRIES = 3; // Resources posts are lower risk — 3 retries is enough
+const MAX_RETRIES = 3;
 
-// ── 20 topic categories — rotates automatically forever ──────────────────────
 const CATEGORIES = [
   {
     label: 'DSA & Algorithms',
@@ -159,9 +158,62 @@ function cleanPost(text) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// STEP 0: Generate a unique post format for today's resource post
+//
+// The LLM invents an original structure suited to the specific category and repos.
+// This blueprint is injected into every generation + retry call.
+// ─────────────────────────────────────────────────────────────────────────────
+async function generatePostFormat(category, repos) {
+  const today = new Date().toISOString().split('T')[0];
+  const repoSummary = repos.map(r => `- ${r.name} (⭐${r.stars}): ${r.desc}`).join('\n');
+
+  const raw = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: 'llama-3.3-70b-versatile',
+      messages: [{
+        role: 'user',
+        content: `You are a LinkedIn content strategist specialising in developer audiences.
+
+Today is ${today}.
+Category: ${category.label}
+Angle: ${category.angle}
+
+Repos to feature:
+${repoSummary}
+
+Design a UNIQUE and ORIGINAL LinkedIn post format for sharing these GitHub repos.
+
+Rules for a good format:
+- The structure must suit this specific category — a security category deserves a different layout than an algorithms one
+- Must feel natural for LinkedIn: scannable, visual rhythm, easy to skim
+- Hook style must vary: it can be a challenge to the reader, a surprising statistic, a confession, a bold ranking claim, a use-case scenario, a "what if" question, or something else — NOT always the same opener
+- How repos are presented can vary widely: numbered ranking with reasoning, matched to developer personas, grouped by use case, presented as a toolkit, framed as a learning path, compared side-by-side, or any other original approach
+- Emoji usage should be deliberate and matched to the structure — not just default ⚡💡🔥✅🎯 every time
+- Closing style should vary: a challenge, a save-this CTA, a prediction, a reflection, or a specific question
+- The format must be COMPLETELY DIFFERENT from a generic "here are 5 repos with emoji bullets" list
+
+HARD RULE: The format must include explicit placeholders showing exactly where each repo name, URL, and star count must appear — these data points must never be omitted or modified.
+
+Output ONLY a concise format blueprint — plain text instructions the writer will follow.
+No preamble, no commentary, no example post. Just the structural blueprint.
+Keep it under 300 words.`,
+      }],
+      temperature: 0.95,
+      max_tokens: 600,
+    }),
+  });
+
+  if (!raw.ok) throw new Error(`Groq format error ${raw.status}: ${await raw.text()}`);
+  return ((await raw.json()).choices[0].message.content.trim());
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // FETCH live repos from GitHub Search API
-// Tries category.query first — falls back to category.fallbackQuery if defined
-// and the primary query returns fewer than 3 quality repos.
 // ─────────────────────────────────────────────────────────────────────────────
 async function fetchGitHubRepos(category) {
   const queries = [category.query];
@@ -197,79 +249,31 @@ async function fetchGitHubRepos(category) {
       }));
 
     if (repos.length >= 3) {
-      if (isFallback) {
-        console.log(`⚠️  Primary query returned too few results — used fallback query for "${category.label}".`);
-      }
+      if (isFallback) console.log(`⚠️  Used fallback query for "${category.label}".`);
       return repos;
     }
 
     if (i < queries.length - 1) {
-      console.log(`⚠️  Query returned only ${repos.length} repos for "${category.label}" — trying fallback query...`);
+      console.log(`⚠️  Only ${repos.length} repos for "${category.label}" — trying fallback...`);
     } else {
-      console.log(`⚠️  Fallback query also returned only ${repos.length} repos for "${category.label}".`);
+      console.log(`⚠️  Fallback also returned only ${repos.length} repos.`);
     }
   }
 
-  throw new Error(`Not enough quality repos found for "${category.label}" — primary and fallback queries both returned fewer than 3 results.`);
+  throw new Error(`Not enough quality repos found for "${category.label}".`);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GENERATE post with Groq (attempt injected for variety on retries)
+// GENERATE post — format blueprint injected from generatePostFormat()
 // ─────────────────────────────────────────────────────────────────────────────
-async function generateResourcePost(category, repos, attempt = 1) {
-  const repoLines = repos.map((r, i) =>
-    `${i + 1}. ${r.name} — ${r.url} (⭐${r.stars})\n   ${r.desc}`
+async function generateResourcePost(category, repos, formatBlueprint, attempt = 1) {
+  const repoData = repos.map((r, i) =>
+    `Repo ${i + 1}:\n  Name: ${r.name}\n  URL: ${r.url}\n  Stars: ⭐${r.stars}\n  Description: ${r.desc}`
   ).join('\n\n');
 
   const varietyHint = attempt > 1
-    ? `NOTE: This is attempt ${attempt}. Write a completely different opening, angle, and phrasing than before.`
+    ? `NOTE: This is attempt ${attempt}. Keep the format blueprint but write completely different framing and copy.`
     : '';
-
-  const prompt = `You are Murugesh Padmanabhan — Technical Lead and Senior Full-Stack Developer at HCL Tech, Chennai. 6+ years of hands-on experience across ReactJS, TypeScript, Node.js, Python, AI/ML, System Design, Security, and more.
-${varietyHint}
-
-Write a top-notch LinkedIn post sharing these GitHub repos for: ${category.label}
-Focus: ${category.angle}
-
-REAL REPOS (keep names, URLs, and star counts EXACTLY as given — do not modify them):
-${repoLines}
-
-WRITE IN THIS EXACT FORMAT with real blank lines between every section:
-
-${category.hook}
-
-[2-3 sentences from personal experience. Why this topic matters to your growth as a developer. What problem these repos collectively solve. Specific, not generic.]
-
-Here are the best free GitHub resources for this 👇
-
-⚡ ${repos[0].name} — ${repos[0].url} ⭐${repos[0].stars}
-[2 clear sentences: what is in this repo and specifically why a developer should open it today.]
-
-💡 ${repos[1].name} — ${repos[1].url} ⭐${repos[1].stars}
-[2 clear sentences: what makes this repo uniquely valuable and what it teaches.]
-
-🔥 ${repos[2].name} — ${repos[2].url} ⭐${repos[2].stars}
-[2 clear sentences: what is inside and how a developer uses it in practice.]
-
-✅ ${repos[3] ? repos[3].name : repos[0].name} — ${repos[3] ? repos[3].url : repos[0].url} ⭐${repos[3] ? repos[3].stars : repos[0].stars}
-[2 clear sentences: concrete benefit and who should use this.]
-
-🎯 ${repos[4] ? repos[4].name : repos[1].name} — ${repos[4] ? repos[4].url : repos[1].url} ⭐${repos[4] ? repos[4].stars : repos[1].stars}
-[2 clear sentences: why bookmark this right now and what it unlocks.]
-
-[One crisp memorable takeaway.]
-
-[One genuine question inviting developers to share their favourite resources.]
-
-#${category.label.replace(/[^a-zA-Z0-9]/g, '')} #GitHub #OpenSource #Programming #Developer
-
-STRICT RULES:
-- NEVER change repo names, URLs, or star counts — copy them character for character
-- 2 clear sentences per repo — specific and concrete, no corporate marketing language
-- Write from personal experience: "I", "our team", "in production"
-- No buzzwords: no "leverage", "synergy", "paradigm", "utilize"
-- Total post length: 250-320 words
-- Output ONLY the post. No preamble, no labels, no extra text.`;
 
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
@@ -279,7 +283,28 @@ STRICT RULES:
     },
     body: JSON.stringify({
       model: 'llama-3.3-70b-versatile',
-      messages: [{ role: 'user', content: prompt }],
+      messages: [{
+        role: 'user',
+        content: `You are Murugesh Padmanabhan — Technical Lead and Senior Full-Stack Developer at HCL Tech, Chennai.
+${varietyHint}
+
+Write a LinkedIn post sharing these GitHub repos for: ${category.label}
+Focus: ${category.angle}
+
+REAL REPO DATA — copy names, URLs, and star counts CHARACTER FOR CHARACTER. Never modify them:
+${repoData}
+
+FOLLOW THIS FORMAT EXACTLY:
+${formatBlueprint}
+
+STRICT RULES:
+- NEVER change any repo name, URL, or star count — copy them exactly as given above
+- Write 2 clear sentences per repo — specific and concrete, no marketing language
+- Write from personal experience: "I", "our team", "in production"
+- No buzzwords: no "leverage", "synergy", "paradigm", "utilize"
+- 250-320 words total
+- Output ONLY the post. No preamble, no labels, no extra text.`,
+      }],
       temperature: 0.75,
       max_tokens: 1500,
     }),
@@ -290,49 +315,23 @@ STRICT RULES:
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CHECK 1 — PROGRAMMATIC INTEGRITY CHECK (no LLM needed)
-//
-// This is the most important check for resources posts.
-// The GitHub data is already accurate — the only risk is the LLM modifying it.
-// So we compare the generated post directly against the real repo data.
-//
-// Returns { pass, violations }
+// INTEGRITY CHECK (programmatic)
 // ─────────────────────────────────────────────────────────────────────────────
 function integrityCheck(postText, repos) {
   const violations = [];
-
   for (const repo of repos) {
-    // Check URL is present and unmodified
-    if (!postText.includes(repo.url)) {
-      violations.push(`Missing or modified URL for "${repo.name}" — expected: ${repo.url}`);
-    }
-
-    // Check repo name is present
-    if (!postText.includes(repo.name)) {
-      violations.push(`Missing or modified repo name — expected: "${repo.name}"`);
-    }
-
-    // Check star count is present (the formatted value e.g. "45k" or "1200")
-    if (!postText.includes(repo.stars)) {
-      violations.push(`Missing or modified star count for "${repo.name}" — expected: ⭐${repo.stars}`);
-    }
+    if (!postText.includes(repo.url))   violations.push(`Missing or modified URL for "${repo.name}" — expected: ${repo.url}`);
+    if (!postText.includes(repo.name))  violations.push(`Missing or modified name — expected: "${repo.name}"`);
+    if (!postText.includes(repo.stars)) violations.push(`Missing or modified stars for "${repo.name}" — expected: ⭐${repo.stars}`);
   }
-
   return { pass: violations.length === 0, violations };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CHECK 2 — LLM CONTENT CHECK
-//
-// Catches false claims about what a repo does, wrong technologies mentioned,
-// or hallucinated features that aren't in the repo description.
-//
-// Returns { pass, issues, revisedPost }
+// CONTENT CHECK (LLM)
 // ─────────────────────────────────────────────────────────────────────────────
 async function contentCheck(postText, repos) {
-  const repoContext = repos.map(r =>
-    `- ${r.name} (${r.url}): ${r.desc}`
-  ).join('\n');
+  const repoContext = repos.map(r => `- ${r.name} (${r.url}): ${r.desc}`).join('\n');
 
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
@@ -354,15 +353,13 @@ POST TO CHECK:
 ${postText}
 """
 
-Check if the post makes any claims about these repos that contradict their actual descriptions above.
-Examples of issues: saying a repo covers a topic it does not, attributing wrong language or framework to a repo, inventing features not mentioned in the description.
-
+Check if the post makes any claims about these repos that contradict their actual descriptions.
 Do NOT flag writing style, opinions, or enthusiasm — only factual contradictions.
 
 If all descriptions are accurate → respond with exactly: PASS
 If issues found → respond with this JSON only (no markdown):
 {
-  "issues": ["specific issue 1", "specific issue 2"],
+  "issues": ["specific issue 1"],
   "revisedPost": "the complete corrected post"
 }
 
@@ -388,41 +385,29 @@ Output ONLY "PASS" or the JSON. Nothing else.`,
 
 // ─────────────────────────────────────────────────────────────────────────────
 // RETRY LOOP
-//
-// Per attempt:
-//   1. Generate fresh post
-//   2. Run integrity check (programmatic — instant, no LLM)
-//      FAIL → regenerate immediately, no point running content check
-//   3. Run content check (LLM)
-//      PASS → publish immediately
-//      FAIL + revisedPost → save as backup, try again
-//
-// After MAX_RETRIES → use best revision or last integrity-passing draft
 // ─────────────────────────────────────────────────────────────────────────────
-async function generateAndVerify(category, repos) {
+async function generateAndVerify(category, repos, formatBlueprint) {
   let bestRevised = null;
   let lastIntegrityPassDraft = null;
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     console.log(`\n✍️  Generating post — attempt ${attempt}/${MAX_RETRIES}...`);
-    const draft = await generateResourcePost(category, repos, attempt);
+    const draft = await generateResourcePost(category, repos, formatBlueprint, attempt);
     console.log('\n─── DRAFT ───\n' + draft + '\n─────────────');
 
-    // ── Step 1: Integrity check (programmatic — fast, no LLM cost) ──────────
-    console.log('\n🔍 Running integrity check (URLs, names, star counts)...');
+    console.log('\n🔍 Running integrity check...');
     const integrity = integrityCheck(draft, repos);
 
     if (!integrity.pass) {
-      console.log('❌ Integrity check FAILED — LLM modified live repo data:');
+      console.log('❌ Integrity check FAILED:');
       integrity.violations.forEach((v, i) => console.log(`   ${i + 1}. ${v}`));
-      console.log('🔄 Regenerating — no point content-checking a post with wrong URLs...\n');
-      continue; // Skip content check, regenerate immediately
+      console.log('🔄 Regenerating...\n');
+      continue;
     }
 
-    console.log('✅ Integrity check PASSED — all URLs, names, star counts intact.');
-    lastIntegrityPassDraft = draft; // Save as fallback
+    console.log('✅ Integrity check PASSED.');
+    lastIntegrityPassDraft = draft;
 
-    // ── Step 2: Content check (LLM — checks descriptive accuracy) ───────────
     console.log('\n🔎 Running content check...');
     const content = await contentCheck(draft, repos);
 
@@ -435,35 +420,29 @@ async function generateAndVerify(category, repos) {
     content.issues.forEach((issue, i) => console.log(`   ${i + 1}. ${issue}`));
 
     if (content.revisedPost) {
-      // Only save revision if it also passes integrity check
       const revIntegrity = integrityCheck(cleanPost(content.revisedPost), repos);
       if (revIntegrity.pass) {
         bestRevised = cleanPost(content.revisedPost);
         console.log('📝 Corrected version passed integrity — saved as backup.');
       } else {
-        console.log('⚠️  Corrected version also failed integrity — discarding it.');
+        console.log('⚠️  Corrected version failed integrity — discarding.');
       }
     }
 
-    if (attempt < MAX_RETRIES) {
-      console.log('🔄 Generating a completely new post...\n');
-    }
+    if (attempt < MAX_RETRIES) console.log('🔄 Generating a completely new post...\n');
   }
 
-  // All retries exhausted
   if (bestRevised) {
     console.log(`\n⚠️  All ${MAX_RETRIES} attempts needed corrections. Using best corrected version.`);
-    console.log('\n─── FINAL (CORRECTED) ───\n' + bestRevised + '\n─────────────────────────');
     return bestRevised;
   }
 
   if (lastIntegrityPassDraft) {
-    console.log(`\n⚠️  Content checks didn't fully pass. Using last integrity-passing draft.`);
+    console.log(`\n⚠️  Content checks did not fully pass. Using last integrity-passing draft.`);
     return lastIntegrityPassDraft;
   }
 
-  // Every single attempt failed integrity — repo data was always modified
-  throw new Error('All attempts failed integrity check. GitHub repo data was hallucinated every time. Aborting.');
+  throw new Error('All attempts failed integrity check. Aborting.');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -502,14 +481,20 @@ const daysSinceEpoch = Math.floor((now.getTime() - EPOCH) / 86400000);
 const category = CATEGORIES[daysSinceEpoch % CATEGORIES.length];
 
 console.log(`\n🚀 Category: ${category.label} (index ${daysSinceEpoch % CATEGORIES.length} / ${CATEGORIES.length - 1})`);
+console.log(`   ${now.toISOString()}`);
 
 console.log('\n📡 Fetching live repos from GitHub API...');
 const repos = await fetchGitHubRepos(category);
 console.log(`✅ Found ${repos.length} repos:`);
 repos.forEach(r => console.log(`   ⭐${r.stars} — ${r.fullName} — ${r.url}`));
 
+// Generate today's unique format blueprint (informed by actual repos)
+console.log('\n🎨 Generating today\'s post format...');
+const formatBlueprint = await generatePostFormat(category, repos);
+console.log('\n─── FORMAT BLUEPRINT ───\n' + formatBlueprint + '\n────────────────────────');
+
 // Generate → integrity check → content check → retry loop
-const finalPost = await generateAndVerify(category, repos);
+const finalPost = await generateAndVerify(category, repos, formatBlueprint);
 
 console.log('\n📤 Publishing to LinkedIn...');
 const postId = await postToLinkedIn(finalPost);
