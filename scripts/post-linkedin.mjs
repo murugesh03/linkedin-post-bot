@@ -1,13 +1,13 @@
 // scripts/post-linkedin.mjs
-// 500+ topics across all languages, CS, AI/ML, Web, Cloud, Mobile — auto-rotating forever
-// v3: Fact-checked + retry loop — regenerates until post passes, always posts daily
+// 500+ topics — auto-rotating forever
+// v5: LLM invents a unique post format each day — no fixed templates, always fresh
 
 import fetch from 'node-fetch';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CONFIG
 // ─────────────────────────────────────────────────────────────────────────────
-const MAX_RETRIES = 4; // Max fresh generation attempts before using best available draft
+const MAX_RETRIES = 4;
 
 const ALL_TOPICS = [
   // ── YOUR CORE SKILLS (90 topics) ─────────────────────────────────────────
@@ -424,8 +424,47 @@ async function groq(prompt, temperature = 0.85) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// STEP 1: Fetch live news context from DuckDuckGo BEFORE generating
-// Prevents the LLM from inventing "latest" facts from stale training data
+// STEP 0: Generate a unique post format for today
+//
+// The LLM invents a completely original structure — hook style, body organisation,
+// section labels, emoji use, closing style — suited to the specific topic.
+// This runs once per execution and the resulting blueprint drives generation.
+// ─────────────────────────────────────────────────────────────────────────────
+async function generatePostFormat(postType, topicOrKeyword) {
+  const today = new Date().toISOString().split('T')[0];
+
+  const context = postType === 'skill'
+    ? `Topic: "${topicOrKeyword.topic}" (skill: ${topicOrKeyword.skill})`
+    : `News keyword: "${topicOrKeyword}"`;
+
+  const raw = await groq(`You are a LinkedIn content strategist specialising in developer audiences.
+
+Today is ${today}.
+${context}
+
+Design a UNIQUE and ORIGINAL LinkedIn post format for this topic.
+
+Rules for a good format:
+- The structure must suit the specific topic — a debugging topic deserves a different structure than a conceptual one
+- Must feel natural for LinkedIn — scannable, with clear visual rhythm
+- Hook style must vary: it can be a question, a bold statement, a counter-intuitive fact, a personal anecdote opener, a numbered promise, a comparison, a confession, or something else entirely
+- Body can use any structure: numbered steps, contrasting pairs, a single concept unpacked progressively, a timeline, a checklist, a Q&A, a narrative arc, a ranked list, a myth-bust, a before/after, labelled sections, or a completely original layout
+- Section labels and emoji style should be chosen deliberately — not just defaulting to ⚡💡🔥✅🎯
+- Closing should vary: a takeaway rule, a challenge to the reader, a prediction, a personal commitment, or a reflection — not always the same pattern
+- The format must be COMPLETLEY DIFFERENT from these overused templates:
+  * Generic emoji bullets with vague labels
+  * "Here is what nobody tells you" openings
+  * Identical 5-point lists with identical emoji every time
+
+Output ONLY a concise format blueprint — plain text instructions the writer will follow.
+No preamble, no commentary, no example post. Just the structural blueprint.
+Keep it under 300 words. Be specific about section names, emoji choices, and the hook style to use today.`, 0.95);
+
+  return raw.trim();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STEP 1: Fetch live news context from DuckDuckGo
 // ─────────────────────────────────────────────────────────────────────────────
 async function fetchNewsContext(keyword) {
   try {
@@ -450,8 +489,7 @@ async function fetchNewsContext(keyword) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// STEP 2: Fact-check generated post with a dedicated low-temperature LLM pass
-// Returns { pass, issues, revisedPost }
+// STEP 2: Fact-check pass
 // ─────────────────────────────────────────────────────────────────────────────
 async function factCheckPost(postText, context = '') {
   const today = new Date().toISOString().split('T')[0];
@@ -467,7 +505,7 @@ ${postText}
 """
 
 Check every version number, release date, and "latest/newest/just released" claim in the post.
-Common errors to look for: calling an old version "the latest", wrong release year, wrong version numbers.
+Common errors: calling an old version "the latest", wrong release year, wrong version numbers.
 
 If all facts are correct → respond with exactly: PASS
 If issues found → respond with this JSON only (no markdown, no backticks):
@@ -489,12 +527,11 @@ Output ONLY "PASS" or the JSON. Nothing else.`, 0.1);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GENERATORS
+// GENERATORS — format blueprint injected into every generation call
 // ─────────────────────────────────────────────────────────────────────────────
-async function generateSkillPost(t, attempt = 1) {
-  // Inject attempt number so the LLM generates a genuinely different post each time
+async function generateSkillPost(t, formatBlueprint, attempt = 1) {
   const varietyHint = attempt > 1
-    ? `NOTE: This is attempt ${attempt}. Write a completely different angle, hook, and examples than your previous attempt.`
+    ? `NOTE: This is attempt ${attempt}. Keep the format blueprint below but write completely different content, hook, and examples.`
     : '';
 
   return cleanPost(await groq(`You are Murugesh Padmanabhan — Technical Lead and Senior Full-Stack Developer at HCL Tech, Chennai. Expert in ${t.skill}.
@@ -502,43 +539,22 @@ ${varietyHint}
 
 Write a detailed LinkedIn post about: "${t.topic}"
 
-EXACT FORMAT (real blank lines between every section):
+FOLLOW THIS FORMAT EXACTLY:
+${formatBlueprint}
 
-[HOOK — One bold punchy line. Surprising fact or common mistake. Do NOT start with "I". Max 15 words.]
-
-[2-3 sentences setting the scene. A real situation, bug, or pattern. Make it relatable.]
-
-Here is what actually matters 👇
-
-⚡ [LABEL 2-4 words] — [2-3 sentences. Real method names, tools, concepts.]
-
-💡 [LABEL 2-4 words] — [2-3 sentences. Concrete example. Explain the WHY.]
-
-🔥 [LABEL 2-4 words] — [2-3 sentences. Common mistake or production gotcha.]
-
-✅ [LABEL 2-4 words] — [2-3 sentences. The correct pattern. Name the actual tool or method.]
-
-🎯 [LABEL 2-4 words] — [2-3 sentences. Advanced insight separating junior from senior.]
-
-The bottom line: [One crisp memorable takeaway.]
-
-[One genuine question to drive comments.]
-
-#${t.skill.replace(/[^a-zA-Z0-9]/g,'')} #Programming #SoftwareEngineering #WomenWhoCode
-
-RULES:
-- Every bullet: 2-3 sentences. No one-liners.
-- Name real methods, APIs, tools in every point.
-- Write from experience: "I", "we", "our team", "in production".
-- No buzzwords: no "leverage", "paradigm", "synergy", "utilize".
-- VERSION ACCURACY: Only state a specific version number if 100% certain. Use feature names over version numbers when uncertain. Never say "latest" without verified proof.
-- 280-380 words. Output ONLY the post.`));
+CONTENT RULES:
+- Name real methods, APIs, tools, and config options in every section
+- Write from personal experience: "I", "we", "our team", "in production"
+- No buzzwords: no "leverage", "paradigm", "synergy", "utilize"
+- VERSION ACCURACY: Only state a specific version number if 100% certain. Use feature names over version numbers when uncertain. Never say "latest" without verified proof
+- 280-380 words total
+- Output ONLY the post. No preamble, no labels, no extra text.`));
 }
 
-async function generateNewsPost(keyword, newsContext, attempt = 1) {
+async function generateNewsPost(keyword, newsContext, formatBlueprint, attempt = 1) {
   const today = new Date().toISOString().split('T')[0];
   const varietyHint = attempt > 1
-    ? `NOTE: This is attempt ${attempt}. Use a completely different hook, angle, and structure than your previous attempt.`
+    ? `NOTE: This is attempt ${attempt}. Keep the format blueprint below but use a completely different hook and angle.`
     : '';
   const contextBlock = newsContext
     ? `VERIFIED CURRENT INFO FROM LIVE SEARCH — use ONLY these facts for version/date claims:\n${newsContext}\n\n`
@@ -549,50 +565,22 @@ ${varietyHint}
 
 ${contextBlock}Write a detailed opinionated LinkedIn post about the latest 2025 news in: ${keyword}
 
-EXACT FORMAT (real blank lines between every section):
+FOLLOW THIS FORMAT EXACTLY:
+${formatBlueprint}
 
-[HOOK — One bold breaking-news line. Do NOT start with "I". Max 15 words.]
-
-[2-3 sentences on what happened. Use ONLY facts from the context above. Never invent version numbers or dates.]
-
-My take as a senior developer 👇
-
-⚡ [LABEL] — [What changed. Facts from context only. 2-3 sentences.]
-
-💡 [LABEL] — [Why this matters. Problem it solves. 2-3 sentences.]
-
-🔥 [LABEL] — [Real impact on daily workflow. Concrete scenario. 2-3 sentences.]
-
-✅ [LABEL] — [What developers should do right now. 2-3 sentences.]
-
-🎯 [LABEL] — [Your personal opinionated prediction. 2-3 sentences.]
-
-The bottom line: [One sharp sentence.]
-
-[One debate-sparking question.]
-
-#TechNews #Programming #WebDevelopment #Developer
-
-CRITICAL ACCURACY RULES:
-- Version numbers and dates MUST come from the verified context above only
+CONTENT RULES:
+- All version numbers and dates MUST come from the verified context above only
 - If context does not mention a version, describe by feature name only
 - Never say "the latest version is X" unless context explicitly confirms it
-- 280-380 words. Output ONLY the post.`));
+- Write from personal experience as a senior developer
+- 280-380 words total
+- Output ONLY the post. No preamble, no labels, no extra text.`));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CORE RETRY LOOP
-//
-// Per attempt:
-//   • Generates a brand-new post (attempt number injected for diversity)
-//   • Runs fact-check pass
-//   • PASS → publish immediately
-//   • FAIL + revisedPost → keep the revision as backup, try again with a fresh post
-//   • After MAX_RETRIES → use the best revision available, or last raw draft
-//
-// The post always goes out — no hard exits.
 // ─────────────────────────────────────────────────────────────────────────────
-async function generateAndVerify(session, topicObj, keyword, newsContext) {
+async function generateAndVerify(session, topicObj, keyword, newsContext, formatBlueprint) {
   let bestRevised = null;
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
@@ -600,9 +588,9 @@ async function generateAndVerify(session, topicObj, keyword, newsContext) {
 
     let draft;
     if (session === 'News') {
-      draft = await generateNewsPost(keyword, newsContext, attempt);
+      draft = await generateNewsPost(keyword, newsContext, formatBlueprint, attempt);
     } else {
-      draft = await generateSkillPost(topicObj, attempt);
+      draft = await generateSkillPost(topicObj, formatBlueprint, attempt);
     }
 
     console.log('\n─── DRAFT ───\n' + draft + '\n─────────────');
@@ -615,32 +603,26 @@ async function generateAndVerify(session, topicObj, keyword, newsContext) {
       return draft;
     }
 
-    // Failed — log issues
     console.log(`⚠️  Attempt ${attempt} FAILED:`);
     result.issues.forEach((issue, i) => console.log(`   ${i + 1}. ${issue}`));
 
-    // Save the best corrected version the fact-checker produced
     if (result.revisedPost) {
       bestRevised = cleanPost(result.revisedPost);
       console.log('📝 Corrected version saved as backup.');
     }
 
-    if (attempt < MAX_RETRIES) {
-      console.log('🔄 Generating a completely new post...\n');
-    }
+    if (attempt < MAX_RETRIES) console.log('🔄 Generating a completely new post...\n');
   }
 
-  // All retries exhausted — always post something
   if (bestRevised) {
     console.log(`\n⚠️  All ${MAX_RETRIES} attempts needed corrections. Using the fact-checker's best revision.`);
     console.log('\n─── FINAL (CORRECTED) ───\n' + bestRevised + '\n─────────────────────────');
     return bestRevised;
   }
 
-  // Absolute last resort — post the last raw draft with a warning in logs
   console.log(`\n⚠️  All ${MAX_RETRIES} attempts failed and no clean revision was produced.`);
   console.log('   Posting last raw draft — manually review this post after publishing.');
-  return null; // Caller will use last draft
+  return null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -693,7 +675,7 @@ const label = session === 'News' ? `Tech News — ${keyword}` : `[${topicObj.ski
 console.log(`\n🚀 ${session} Post — ${label}`);
 console.log(`   Index: ${session === 'Morning' ? morningIndex : eveningIndex} / ${ALL_TOPICS.length - 1} | ${now.toISOString()}`);
 
-// Fetch live news context first (News session only)
+// Fetch live news context (News session only)
 let newsContext = null;
 if (session === 'News') {
   console.log('\n🔍 Fetching live news context from DuckDuckGo...');
@@ -701,8 +683,14 @@ if (session === 'News') {
   console.log(newsContext ? '✅ Live context loaded.\n' : '⚠️  No live context — post will use general framing.\n');
 }
 
+// Generate today's unique format blueprint
+console.log('\n🎨 Generating today\'s post format...');
+const topicOrKeyword = session === 'News' ? keyword : topicObj;
+const formatBlueprint = await generatePostFormat(session === 'News' ? 'news' : 'skill', topicOrKeyword);
+console.log('\n─── FORMAT BLUEPRINT ───\n' + formatBlueprint + '\n────────────────────────');
+
 // Generate → fact-check → retry until passing (or best-effort)
-const finalPost = await generateAndVerify(session, topicObj, keyword, newsContext);
+const finalPost = await generateAndVerify(session, topicObj, keyword, newsContext, formatBlueprint);
 
 if (!finalPost) {
   console.error('\n🚫 Could not produce any post. Exiting without publishing.');
