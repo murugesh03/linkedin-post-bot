@@ -129,8 +129,10 @@ const CATEGORIES = [
     angle: 'Java best practices, Spring Boot, concurrency, and enterprise development patterns',
   },
   {
+    // ── FIXED: replaced topic:awesome+topic:developer (returns 0) with broader query ──
     label: 'Open Source Resources',
-    query: 'topic:awesome+topic:developer+stars:>10000',
+    query: 'topic:awesome+stars:>10000',
+    fallbackQuery: 'awesome+developer+tools+stars:>5000',
     hook: 'The best developer resources on the internet are free and open source. Bookmark these now. ⭐',
     angle: 'curated open source learning resources, tools, and developer productivity repos',
   },
@@ -159,9 +161,6 @@ function cleanPost(text) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // STEP 0: Generate a unique post format for today's resource post
-//
-// The LLM invents an original structure suited to the specific category and repos.
-// This blueprint is injected into every generation + retry call.
 // ─────────────────────────────────────────────────────────────────────────────
 async function generatePostFormat(category, repos) {
   const today = new Date().toISOString().split('T')[0];
@@ -219,6 +218,12 @@ async function fetchGitHubRepos(category) {
   const queries = [category.query];
   if (category.fallbackQuery) queries.push(category.fallbackQuery);
 
+  // Additional universal fallback using label keywords
+  const labelQuery = encodeURIComponent(
+    category.label.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim().split(' ').slice(0, 3).join('+')
+  ) + '+stars:>1000';
+  queries.push(labelQuery);
+
   const headers = {
     'Accept': 'application/vnd.github.v3+json',
     'User-Agent': 'linkedin-post-bot',
@@ -231,40 +236,43 @@ async function fetchGitHubRepos(category) {
     const query = queries[i];
     const isFallback = i > 0;
 
-    const url = `https://api.github.com/search/repositories?q=${query}+pushed:>2024-01-01&sort=stars&order=desc&per_page=10`;
-    const res = await fetch(url, { headers });
-    if (!res.ok) throw new Error(`GitHub API error ${res.status}: ${await res.text()}`);
+    try {
+      const url = `https://api.github.com/search/repositories?q=${query}+pushed:>2024-01-01&sort=stars&order=desc&per_page=10`;
+      const res = await fetch(url, { headers });
+      if (!res.ok) {
+        console.log(`⚠️  Query ${i + 1} failed with status ${res.status}`);
+        continue;
+      }
 
-    const data = await res.json();
-    const repos = data.items
-      .filter(r => r.description && r.description.length > 20 && !r.fork)
-      .slice(0, 5)
-      .map(r => ({
-        name: r.name,
-        fullName: r.full_name,
-        url: `https://github.com/${r.full_name}`,
-        stars: formatStars(r.stargazers_count),
-        desc: r.description.replace(/[^\x20-\x7E]/g, '').trim(),
-        language: r.language || 'Multiple',
-      }));
+      const data = await res.json();
+      const repos = (data.items || [])
+        .filter(r => r.description && r.description.length > 20 && !r.fork)
+        .slice(0, 5)
+        .map(r => ({
+          name: r.name,
+          fullName: r.full_name,
+          url: `https://github.com/${r.full_name}`,
+          stars: formatStars(r.stargazers_count),
+          desc: r.description.replace(/[^\x20-\x7E]/g, '').trim(),
+          language: r.language || 'Multiple',
+        }));
 
-    if (repos.length >= 3) {
-      if (isFallback) console.log(`⚠️  Used fallback query for "${category.label}".`);
-      return repos;
-    }
+      if (repos.length >= 3) {
+        if (isFallback) console.log(`⚠️  Used fallback query ${i + 1} for "${category.label}".`);
+        return repos;
+      }
 
-    if (i < queries.length - 1) {
-      console.log(`⚠️  Only ${repos.length} repos for "${category.label}" — trying fallback...`);
-    } else {
-      console.log(`⚠️  Fallback also returned only ${repos.length} repos.`);
+      console.log(`⚠️  Query ${i + 1} returned only ${repos.length} repos for "${category.label}" — trying next...`);
+    } catch (err) {
+      console.log(`⚠️  Query ${i + 1} threw error: ${err.message}`);
     }
   }
 
-  throw new Error(`Not enough quality repos found for "${category.label}".`);
+  throw new Error(`Not enough quality repos found for "${category.label}" after ${queries.length} attempts.`);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GENERATE post — format blueprint injected from generatePostFormat()
+// GENERATE post
 // ─────────────────────────────────────────────────────────────────────────────
 async function generateResourcePost(category, repos, formatBlueprint, attempt = 1) {
   const repoData = repos.map((r, i) =>
