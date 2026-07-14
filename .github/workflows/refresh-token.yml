@@ -1,0 +1,29 @@
+name: Auto Refresh LinkedIn Token
+
+on:
+  schedule:
+    - cron: '0 2 */50 * *'   # Every 50 days at 2 AM UTC (before 60-day expiry)
+  workflow_dispatch:           # Manual trigger anytime
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install node-fetch
+
+      - name: Refresh LinkedIn access token
+        env:
+          LINKEDIN_REFRESH_TOKEN: ${{ secrets.LINKEDIN_REFRESH_TOKEN }}
+          LINKEDIN_CLIENT_ID: ${{ secrets.LINKEDIN_CLIENT_ID }}
+          LINKEDIN_CLIENT_SECRET: ${{ secrets.LINKEDIN_CLIENT_SECRET }}
+          GITHUB_PAT: ${{ secrets.GH_PAT }}
+          GITHUB_REPO: ${{ github.repository }}
+        run: node scripts/refresh-token.mjs
