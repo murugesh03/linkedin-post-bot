@@ -8,6 +8,21 @@ import fetch from 'node-fetch';
 // CONFIG
 // ─────────────────────────────────────────────────────────────────────────────
 const MAX_RETRIES = 4;
+const GROQ_MAX_RETRIES = 3;
+
+async function fetchGroq(url, options) {
+  for (let attempt = 1; attempt <= GROQ_MAX_RETRIES; attempt++) {
+    const res = await fetch(url, options);
+    if (res.status !== 429 || attempt === GROQ_MAX_RETRIES) return res;
+
+    const retryAfter = Number(res.headers.get('retry-after'));
+    const delaySeconds = Number.isFinite(retryAfter) && retryAfter > 0
+      ? retryAfter
+      : 20 * attempt;
+    console.log(`⚠️  Groq rate limit reached. Retrying in ${delaySeconds}s...`);
+    await new Promise(resolve => setTimeout(resolve, delaySeconds * 1000));
+  }
+}
 
 const ALL_TOPICS = [
   // ── YOUR CORE SKILLS (90 topics) ─────────────────────────────────────────
@@ -406,7 +421,7 @@ function cleanPost(text) {
 }
 
 async function groq(prompt, temperature = 0.85) {
-  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+  const res = await fetchGroq('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
