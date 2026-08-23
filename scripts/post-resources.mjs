@@ -173,7 +173,7 @@ async function generatePostFormat(category, repos) {
       'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
     },
     body: JSON.stringify({
-      model: 'llama-3.3-70b-versatile',
+      model: 'openai/gpt-oss-120b',
       messages: [{
         role: 'user',
         content: `You are a LinkedIn content strategist specialising in developer audiences.
@@ -290,7 +290,7 @@ async function generateResourcePost(category, repos, formatBlueprint, attempt = 
       'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
     },
     body: JSON.stringify({
-      model: 'llama-3.3-70b-versatile',
+      model: 'openai/gpt-oss-120b',
       messages: [{
         role: 'user',
         content: `You are Murugesh Padmanabhan — Technical Lead and Senior Full-Stack Developer at HCL Tech, Chennai.
@@ -348,7 +348,7 @@ async function contentCheck(postText, repos) {
       'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
     },
     body: JSON.stringify({
-      model: 'llama-3.3-70b-versatile',
+      model: 'openai/gpt-oss-120b',
       messages: [{
         role: 'user',
         content: `You are a technical fact-checker reviewing a LinkedIn post about GitHub repositories.
