@@ -481,7 +481,7 @@ async function generateAndVerify(category, repos, formatBlueprint) {
 // PUBLISH
 // ─────────────────────────────────────────────────────────────────────────────
 async function postToLinkedIn(text) {
-  const res = await fetch('https://api.linkedin.com/v2/ugcPosts', {
+  const publish = async postText => fetch('https://api.linkedin.com/v2/ugcPosts', {
     method: 'POST',
     headers: {
       'Authorization': 'Bearer ' + process.env.LINKEDIN_ACCESS_TOKEN,
@@ -493,15 +493,25 @@ async function postToLinkedIn(text) {
       lifecycleState: 'PUBLISHED',
       specificContent: {
         'com.linkedin.ugc.ShareContent': {
-          shareCommentary: { text },
+          shareCommentary: { text: postText },
           shareMediaCategory: 'NONE',
         },
       },
       visibility: { 'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC' },
     }),
   });
-  if (!res.ok) throw new Error(`LinkedIn error ${res.status}: ${await res.text()}`);
-  return (await res.json()).id;
+
+  let res = await publish(text);
+  let responseBody = await res.text();
+  if (!res.ok && res.status === 422 && responseBody.includes('DUPLICATE_POST')) {
+    const uniqueText = `${text}\n\nPublished ${new Date().toISOString()}`;
+    console.log('⚠️  LinkedIn rejected duplicate content. Retrying with a unique timestamp.');
+    res = await publish(uniqueText);
+    responseBody = await res.text();
+  }
+
+  if (!res.ok) throw new Error(`LinkedIn error ${res.status}: ${responseBody}`);
+  return JSON.parse(responseBody).id;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
