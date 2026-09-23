@@ -420,6 +420,30 @@ function cleanPost(text) {
     .trim();
 }
 
+function validatePostFormat(text) {
+  const violations = [];
+  const wordCount = text.trim().split(/\s+/).filter(Boolean).length;
+  if (wordCount < 80 || wordCount > 380) {
+    violations.push(`post must contain 80-380 words; received ${wordCount}`);
+  }
+  if (text.length > 3000) {
+    violations.push(`post exceeds LinkedIn's 3000-character limit (${text.length})`);
+  }
+  if (/\b(FOLLOW THIS FORMAT|CONTENT RULES|OUTPUT ONLY|format blueprint)\b/i.test(text)) {
+    violations.push('generation instructions leaked into the post');
+  }
+  if (/^\s*(Hook|Closing)\s*\([^\n]+\)/im.test(text)) {
+    violations.push('blueprint labels leaked into the post');
+  }
+  if (/```|^\s*\|.*\|\s*$/m.test(text)) {
+    violations.push('code fences or markdown tables are not suitable for this post format');
+  }
+  if (/^\s*\{[\s\S]*\}\s*$/m.test(text)) {
+    violations.push('raw JSON is not a LinkedIn post');
+  }
+  return violations;
+}
+
 async function groq(prompt, temperature = 0.85) {
   const res = await fetchGroq('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
@@ -560,6 +584,10 @@ FOLLOW THIS FORMAT EXACTLY:
 ${formatBlueprint}
 
 CONTENT RULES:
+- The blueprint is private instruction. Never reproduce its labels, examples, checklist, table, or wording in the post.
+- Output only the finished reader-facing post. Do not include "Hook", "Closing", "Act I", "format blueprint", writing instructions, or planning notes.
+- Do not invent exact percentages, benchmarks, incidents, team stories, or production results. Use clearly labelled illustrative examples or omit them.
+- Do not invent APIs or commands. If an API is uncertain, describe the concept without a code snippet.
 - Name real methods, APIs, tools, and config options in every section
 - Write from personal experience: "I", "we", "our team", "in production"
 - No buzzwords: no "leverage", "paradigm", "synergy", "utilize"
@@ -586,6 +614,10 @@ FOLLOW THIS FORMAT EXACTLY:
 ${formatBlueprint}
 
 CONTENT RULES:
+- The blueprint is private instruction. Never reproduce its labels, examples, checklist, table, or wording in the post.
+- Output only the finished reader-facing post. Do not include "Hook", "Closing", "Act I", "format blueprint", writing instructions, or planning notes.
+- Do not invent exact percentages, benchmarks, incidents, team stories, or production results. Use clearly labelled illustrative examples or omit them.
+- Do not invent APIs or commands. If an API is uncertain, describe the concept without a code snippet.
 - All version numbers and dates MUST come from the verified context above only
 - If context does not mention a version, describe by feature name only
 - Never say "the latest version is X" unless context explicitly confirms it
@@ -615,6 +647,14 @@ async function generateAndVerify(session, topicObj, keyword, newsContext, format
       continue;
     }
 
+    const formatViolations = validatePostFormat(draft);
+    if (formatViolations.length > 0) {
+      console.log('❌ Post format check FAILED:');
+      formatViolations.forEach((violation, i) => console.log(`   ${i + 1}. ${violation}`));
+      if (attempt < MAX_RETRIES) console.log('🔄 Regenerating without leaked blueprint content...\n');
+      continue;
+    }
+
     console.log('\n─── DRAFT ───\n' + draft + '\n─────────────');
     console.log('\n🔎 Running fact-check...');
 
@@ -629,8 +669,14 @@ async function generateAndVerify(session, topicObj, keyword, newsContext, format
     result.issues.forEach((issue, i) => console.log(`   ${i + 1}. ${issue}`));
 
     if (result.revisedPost) {
-      bestRevised = cleanPost(result.revisedPost);
-      console.log('📝 Corrected version saved as backup.');
+      const revisedPost = cleanPost(result.revisedPost);
+      const revisedViolations = validatePostFormat(revisedPost);
+      if (revisedViolations.length === 0) {
+        bestRevised = revisedPost;
+        console.log('📝 Corrected version saved as backup.');
+      } else {
+        console.log('⚠️  Corrected version failed format validation — discarding.');
+      }
     }
 
     if (attempt < MAX_RETRIES) console.log('🔄 Generating a completely new post...\n');
@@ -726,6 +772,13 @@ const finalPost = await generateAndVerify(session, topicObj, keyword, newsContex
 
 if (!finalPost) {
   console.error('\n🚫 Could not produce any post. Exiting without publishing.');
+  process.exit(1);
+}
+
+const finalFormatViolations = validatePostFormat(finalPost);
+if (finalFormatViolations.length > 0) {
+  console.error('\n🚫 Final post failed format validation. Exiting without publishing.');
+  finalFormatViolations.forEach(violation => console.error(`   - ${violation}`));
   process.exit(1);
 }
 
