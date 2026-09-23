@@ -435,7 +435,9 @@ async function groq(prompt, temperature = 0.85) {
     }),
   });
   if (!res.ok) throw new Error(`Groq error ${res.status}: ${await res.text()}`);
-  return (await res.json()).choices[0].message.content.trim();
+  const content = (await res.json()).choices?.[0]?.message?.content?.trim();
+  if (!content) throw new Error('Groq returned an empty response');
+  return content;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -606,6 +608,11 @@ async function generateAndVerify(session, topicObj, keyword, newsContext, format
       draft = await generateNewsPost(keyword, newsContext, formatBlueprint, attempt);
     } else {
       draft = await generateSkillPost(topicObj, formatBlueprint, attempt);
+    }
+
+    if (!draft.trim()) {
+      console.log('⚠️  Groq returned an empty draft. Retrying...');
+      continue;
     }
 
     console.log('\n─── DRAFT ───\n' + draft + '\n─────────────');

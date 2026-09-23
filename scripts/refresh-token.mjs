@@ -37,16 +37,22 @@ async function refreshLinkedInToken() {
 
 // ── Step 2: Update GitHub Secret using GitHub CLI ─────────────────────────────
 function updateGitHubSecret(secretName, secretValue) {
+  const githubToken = process.env.GH_TOKEN;
+  if (!githubToken) {
+    throw new Error('GH_TOKEN is missing. Configure the GH_PAT repository secret before running token refresh.');
+  }
+
   try {
-    // Use GitHub CLI (gh) which is pre-installed on GitHub Actions runners
     const repo = process.env.GITHUB_REPO; // e.g. murugesh03/linkedin-post-bot
-    execSync(
-      `echo "${secretValue}" | gh secret set ${secretName} --repo ${repo}`,
-      { stdio: 'pipe', env: { ...process.env, GH_TOKEN: process.env.GITHUB_PAT } }
-    );
+    execSync(`gh secret set ${secretName} --repo ${repo}`, {
+      input: `${secretValue}\n`,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...process.env, GH_TOKEN: githubToken },
+    });
     console.log(`✅ GitHub Secret '${secretName}' updated`);
   } catch (err) {
-    throw new Error(`Failed to update secret ${secretName}: ${err.message}`);
+    const detail = err.stderr?.toString().trim() || err.message;
+    throw new Error(`Failed to update secret ${secretName}: ${detail}`);
   }
 }
 

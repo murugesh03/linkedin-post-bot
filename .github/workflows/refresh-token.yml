@@ -24,6 +24,6 @@ jobs:
           LINKEDIN_REFRESH_TOKEN: ${{ secrets.LINKEDIN_REFRESH_TOKEN }}
           LINKEDIN_CLIENT_ID: ${{ secrets.LINKEDIN_CLIENT_ID }}
           LINKEDIN_CLIENT_SECRET: ${{ secrets.LINKEDIN_CLIENT_SECRET }}
-          GITHUB_PAT: ${{ secrets.GH_PAT }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
           GITHUB_REPO: ${{ github.repository }}
         run: node scripts/refresh-token.mjs

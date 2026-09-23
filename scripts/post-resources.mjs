@@ -232,7 +232,9 @@ Keep it under 300 words.`,
   });
 
   if (!raw.ok) throw new Error(`Groq format error ${raw.status}: ${await raw.text()}`);
-  return ((await raw.json()).choices[0].message.content.trim());
+  const content = (await raw.json()).choices?.[0]?.message?.content?.trim();
+  if (!content) throw new Error('Groq returned an empty format response');
+  return content;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -343,7 +345,9 @@ STRICT RULES:
   });
 
   if (!res.ok) throw new Error(`Groq error ${res.status}: ${await res.text()}`);
-  return preserveRepoFacts(cleanPost((await res.json()).choices[0].message.content.trim()), repos);
+  const content = (await res.json()).choices?.[0]?.message?.content?.trim();
+  if (!content) throw new Error('Groq returned an empty resource post');
+  return preserveRepoFacts(cleanPost(content), repos);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

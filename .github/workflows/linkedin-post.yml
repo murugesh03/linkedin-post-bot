@@ -7,6 +7,15 @@ on:
     - cron: '30 6 * * *'   # 12:00 PM IST — Latest tech news
     - cron: '30 13 * * *'  # 7:00 PM IST  — Evening skill topic
   workflow_dispatch:
+    inputs:
+      post_type:
+        description: 'Choose which post to publish'
+        required: true
+        default: linkedin
+        type: choice
+        options:
+          - linkedin
+          - resources
 
 jobs:
   post:
@@ -20,7 +29,7 @@ jobs:
       - run: npm install node-fetch
 
       - name: 7AM — GitHub Resources Post
-        if: github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && contains(github.event.schedule, '30 1'))
+        if: (github.event_name == 'schedule' && contains(github.event.schedule, '30 1')) || (github.event_name == 'workflow_dispatch' && inputs.post_type == 'resources')
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           LINKEDIN_ACCESS_TOKEN: ${{ secrets.LINKEDIN_ACCESS_TOKEN }}
@@ -28,7 +37,7 @@ jobs:
         run: node scripts/post-resources.mjs
 
       - name: 9AM / 12PM / 7PM — Skill & News Posts
-        if: github.event_name == 'workflow_dispatch' || !contains(github.event.schedule, '30 1')
+        if: (github.event_name == 'schedule' && !contains(github.event.schedule, '30 1')) || (github.event_name == 'workflow_dispatch' && inputs.post_type == 'linkedin')
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           LINKEDIN_ACCESS_TOKEN: ${{ secrets.LINKEDIN_ACCESS_TOKEN }}
