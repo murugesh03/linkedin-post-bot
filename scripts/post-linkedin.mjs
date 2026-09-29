@@ -636,10 +636,16 @@ async function generateAndVerify(session, topicObj, keyword, newsContext, format
     console.log(`\n✍️  Generating post — attempt ${attempt}/${MAX_RETRIES}...`);
 
     let draft;
-    if (session === 'News') {
-      draft = await generateNewsPost(keyword, newsContext, formatBlueprint, attempt);
-    } else {
-      draft = await generateSkillPost(topicObj, formatBlueprint, attempt);
+    try {
+      if (session === 'News') {
+        draft = await generateNewsPost(keyword, newsContext, formatBlueprint, attempt);
+      } else {
+        draft = await generateSkillPost(topicObj, formatBlueprint, attempt);
+      }
+    } catch (err) {
+      console.warn(`⚠️  Post generation failed on attempt ${attempt}: ${err.message}`);
+      if (attempt < MAX_RETRIES) console.log('🔄 Retrying post generation...\n');
+      continue;
     }
 
     if (!draft.trim()) {
@@ -689,7 +695,7 @@ async function generateAndVerify(session, topicObj, keyword, newsContext, format
   }
 
   console.log(`\n⚠️  All ${MAX_RETRIES} attempts failed and no clean revision was produced.`);
-  console.log('   Posting last raw draft — manually review this post after publishing.');
+  console.log('   No publishable draft was produced.');
   return null;
 }
 
