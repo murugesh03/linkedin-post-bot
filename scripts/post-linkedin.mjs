@@ -488,8 +488,10 @@ Design a UNIQUE and ORIGINAL LinkedIn post format for this topic.
 Rules for a good format:
 - The structure must suit the specific topic — a debugging topic deserves a different structure than a conceptual one
 - Must feel natural for LinkedIn — scannable, with clear visual rhythm
-- Hook style must vary: it can be a question, a bold statement, a counter-intuitive fact, a personal anecdote opener, a numbered promise, a comparison, a confession, or something else entirely
+- Hook style must vary: it can be a question, a bold statement, a counter-intuitive fact, a numbered promise, a comparison, a confession, or something else entirely
 - Body can use any structure: numbered steps, contrasting pairs, a single concept unpacked progressively, a timeline, a checklist, a Q&A, a narrative arc, a ranked list, a myth-bust, a before/after, labelled sections, or a completely original layout
+- Never request code fences, markdown tables, or pipe-delimited rows; express comparisons as paired labels or bullets
+- Never request invented metrics, percentages, personal anecdotes, or production results; use only facts supplied in the context
 - Section labels and emoji style should be chosen deliberately — not just defaulting to ⚡💡🔥✅🎯
 - Closing should vary: a takeaway rule, a challenge to the reader, a prediction, a personal commitment, or a reflection — not always the same pattern
 - The format must be COMPLETLEY DIFFERENT from these overused templates:
@@ -586,6 +588,7 @@ ${formatBlueprint}
 CONTENT RULES:
 - The blueprint is private instruction. Never reproduce its labels, examples, checklist, table, or wording in the post.
 - Output only the finished reader-facing post. Do not include "Hook", "Closing", "Act I", "format blueprint", writing instructions, or planning notes.
+- Never use code fences, markdown tables, or pipe-delimited rows; express comparisons as paired labels or bullets.
 - Do not invent exact percentages, benchmarks, incidents, team stories, or production results. Use clearly labelled illustrative examples or omit them.
 - Do not invent APIs or commands. If an API is uncertain, describe the concept without a code snippet.
 - Name real methods, APIs, tools, and config options in every section
@@ -616,6 +619,7 @@ ${formatBlueprint}
 CONTENT RULES:
 - The blueprint is private instruction. Never reproduce its labels, examples, checklist, table, or wording in the post.
 - Output only the finished reader-facing post. Do not include "Hook", "Closing", "Act I", "format blueprint", writing instructions, or planning notes.
+- Never use code fences, markdown tables, or pipe-delimited rows; express comparisons as paired labels or bullets.
 - Do not invent exact percentages, benchmarks, incidents, team stories, or production results. Use clearly labelled illustrative examples or omit them.
 - Do not invent APIs or commands. If an API is uncertain, describe the concept without a code snippet.
 - All version numbers and dates MUST come from the verified context above only
